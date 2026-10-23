@@ -1,0 +1,19 @@
+// Движок плагинов Veil (docs/PLUGINS.md, «Движок»): граница между хостом (veil/plugin_host.py) и кодом, который
+// исполняется внутри WebAssembly. Всё, что плагин может сделать вне себя, — host.call; каждое действие проверяет бот.
+package veil:plugin@1.0.0;
+
+interface host {
+  // Действие плагина: имя (notify, show, http, storage_put…) и аргументы JSON → ответ JSON или отказ словами.
+  call: func(name: string, args: string) -> result<string, string>;
+}
+
+world engine {
+  import host;
+
+  // pkg — {"id", "entry", "files": {имя: текст}, "settings": {…}}. Ответ — что плагин объявил при загрузке:
+  // {"events", "commands", "buttons", "inputs", "links", "log"}; отказ — {"error", "log"}.
+  export describe: func(pkg: string) -> result<string, string>;
+
+  // Событие пакету: {"t": "event", "ev", "data"} или {"t": "command", "name", "arg"} → {"value", "log"}.
+  export handle: func(pkg: string, event: string) -> result<string, string>;
+}

@@ -1,0 +1,44 @@
+[project]
+name = "veil-client"
+version = "0.1.0.dev0"
+description = "Reference Veil bot: anonymous posting to a Telegram group through your own bot"
+license = "MIT"
+requires-python = ">=3.11"
+dependencies = [
+  "pynacl>=1.6.2",    # Ed25519, X25519, sealed box; 1.5.0–1.6.1 — CVE-2025-69277 во вшитой libsodium
+  "regex>=2024.0",    # \X — подсчёт графем в никах
+  "httpx>=0.28",      # асинхронный Bot API, прокси
+  "socksio>=1.0",     # прокси socks5:// для httpx (config: telegram.proxy)
+  "h11>=0.16",        # транзитивно через httpx: до 0.16 — CVE-2025-43859
+  "idna>=3.15",       # транзитивно через httpx: до 3.15 — CVE-2026-45409
+  "mnemonic==0.21",   # BIP-39: эталонная реализация Trezor (python-mnemonic), версия закреплена
+  "wasmtime==49.0.0", # движок плагинов (docs/PLUGINS.md): версия закреплена — от неё зависит формат
+                      # скомпилированного движка (.cwasm) и ABI компонентной модели
+]
+# Точные версии и хеши — requirements.lock (pip-compile --generate-hashes); установка:
+#   pip install --require-hashes -r requirements.lock && pip install --no-deps .
+
+[project.scripts]
+veil-bot = "veil.__main__:run"
+# Системное требование: libsodium >= 1.0.21 (или пакет дистрибутива с исправлением CVE-2025-69277); через него и Argon2id метки;
+# ristretto255 для токенов вызывается через ctypes. Со старой версией клиент работает, но предупреждает.
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[tool.setuptools.packages.find]
+include = ["veil*"]   # locales/ — рядом с пакетом, приложение запускается из каталога исходников
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff.lint]
+# Те же правила запускает tools/security_check.sh. RUF006 — задача asyncio без ссылки (её может собрать сборщик
+# мусора), RUF021 — and/or без скобок, PLC0415 — импорт внутри функции только с пометкой причины (noqa).
+select = ["F", "E9", "B", "S", "BLE", "RUF006", "RUF021", "PLC0415"]
+# S105/S107 — коды ошибок со словом TOKEN, S311 — random не для криптографии, B905 — длины сверены раньше,
+# BLE001 — широкий except там, где один сбой не должен ронять цикл (каждый помечен).
+ignore = ["S101", "B905", "BLE001", "S311", "S105", "S107"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S", "B", "PLC0415"]

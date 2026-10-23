@@ -1,0 +1,46 @@
+# Конфиг бота Veil. Скопируйте в config.toml. Токен бота — только в переменной окружения.
+
+[telegram]
+token_env = "VEIL_BOT_TOKEN"   # имя переменной окружения с токеном вашего бота
+owner_id = 0                   # ваш Telegram ID; 0 — ссылка привязки владельца появится в терминале и в data/owner-link.txt
+# proxy = "socks5://127.0.0.1:1080"   # иначе HTTPS_PROXY из окружения
+
+[server]
+inbox_bot = "@<приёмный_бот_сервера>"   # имя из описания сервера, к которому подключаетесь
+issuer_bot = "@<бот_эмитент>"
+# Ключ подписи сервера из keys.json (поле server_sig). Бот принимает только документы с этим ключом.
+server_sig = ""
+keys_file = "keys.json"        # keys.json из публичного репозитория veil-protocol, НЕ от сервера: из него
+                               # закрепляется ключ эмитента (spec/03). По keys.get обновляются только ключи inbox_enc.
+
+[storage]
+data_dir = "data"              # ключи, токены, база; права 700
+
+[privacy]
+random_delay_seconds = [15, 90]  # случайная задержка нового поста [min, max] секунд; бот сразу пишет, через сколько
+                                # отправит. [0, 0] — без задержки (время поста совпадёт с моментом отправки)
+auto_sync_feed_seconds = 60    # как часто проверять ответы на свои посты (0 — не проверять)
+keep_posts_days = 30           # сколько помнить «мой пост ↔ его секрет» (правка, удаление, уведомления об ответах).
+                               # Кто получит data/, узнает ваши анонимные посты только за этот срок. 0 — всегда.
+
+[ui]
+locale = "ru"
+[ui.labels]                    # переопределение любых текстов: button.send = "Опубликовать"
+
+# Плагины (docs/PLUGINS.md): пакет plugins/<id>/ с plugin.toml работает в движке плагинов (WebAssembly в отдельном
+# процессе, без ключей и файлов бота) и запускается после вашего согласия на его разрешения. Движок — python -m veil
+# config.toml engine fetch.
+[plugins]
+enabled = []                   # например ["reply_digest"] — каталог plugins/reply_digest/
+# tokens_low = 5               # порог для on_tokens_low
+# engine = "…/veil-engine.wasm"  # свой путь к движку (своя сборка — ещё и engine trust)
+# workers = 4                  # событий одновременно
+# memory_mb = 64               # память одного события
+# [plugins.settings.reply_digest]
+# keep = 50
+
+# Маркет плагинов (/market, docs/MARKET.md). Ключ каталога бот закрепляет при первом использовании: подменить его потом
+# молча нельзя (смена — python -m veil config.toml pin-market). Ключ — из README репозитория veil-plugins.
+[market]
+key = "ulWdQRkaEYM9c3OEZhmDzuUdxtpbwmU4npteryh8LNI"
+# urls = ["https://raw.githubusercontent.com/a58becde/veil-plugins/main/"]   # зеркала — списком

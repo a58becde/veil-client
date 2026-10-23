@@ -1,0 +1,10 @@
+id = "reply_digest"
+name = "Сводка ответов"
+version = "1.0.0"
+api = 1
+entry = "main"
+description = "Копит ответы на ваши посты и по команде /digest присылает сводку: на какой пост сколько ответов. Предупреждает, когда кончаются токены."
+author = "Veil"
+license = "MIT"
+permissions = ["replies", "commands", "notify", "tokens"]
+author_pk = "nQoOpsZyhx2G83qR4WoyOepfdM5NH9lx60zpTC701ho"

@@ -1,0 +1,10 @@
+id = "link_guard"
+name = "Без открытых ссылок"
+version = "1.0.0"
+api = 1
+entry = "main"
+description = "Не даёт опубликовать пост с открытой ссылкой: ссылка может выдать автора. Предлагает скрыть ссылки."
+author = "Veil"
+license = "MIT"
+permissions = ["before_send"]
+author_pk = "nQoOpsZyhx2G83qR4WoyOepfdM5NH9lx60zpTC701ho"

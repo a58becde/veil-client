@@ -1,0 +1,49 @@
+# Секреты: никогда не коммитить
+.env
+*.env
+!.env.example
+*.session
+*.pem
+*.key
+*.hex
+*.age
+*.veilx
+/secrets/
+
+# Локальные базы ботов и их журналы
+*.db
+*.db-wal
+*.db-shm
+*.db.enc
+
+# Рабочие заметки и состояние инструментов разработчика (в том числе ассистента)
+CLAUDE.md
+.claude/
+
+# Движок плагинов: сборка (официальная — из релиза, docs/PLUGINS.md) и машинный код, среда сборщика
+/engine/dist/
+/engine/.build/
+
+# Данные бота: ключи, кошелёк, БД
+data/
+*.veil
+__pycache__/
+.venv/
+
+# Локальный конфиг бота (owner_id) и стартовый keys.json
+config.toml
+/keys.json
+/instances/
+
+# Отчёты покрытия и профили: хранят абсолютные пути машины разработчика
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+*.cover
+cover.out
+*.coverprofile
+*.prof
+.pytest_cache/
+pool.toml
+pool-data/
