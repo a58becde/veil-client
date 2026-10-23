@@ -47,3 +47,7 @@ cover.out
 .pytest_cache/
 pool.toml
 pool-data/
+mutants/
+/veil-protocol
+mutants.log
+setup.cfg

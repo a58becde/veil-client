@@ -17,8 +17,8 @@ SCALAR_BYTES = 32
 MIN_VERSION = (1, 0, 18)  # первая версия с ristretto255
 # Каталоги системных библиотек: libsodium грузится по абсолютному пути из них (они принадлежат root), а не поиском
 # по имени — тот зависит от LD_LIBRARY_PATH и подобных переменных окружения.
-SYSTEM_LIB_DIRS = ("/usr/lib64", "/usr/lib", "/lib64", "/lib", "/usr/lib/x86_64-linux-gnu", "/usr/lib/aarch64-linux-gnu",
-                   "/usr/local/lib", "/opt/homebrew/lib")
+SYSTEM_LIB_DIRS = ("/usr/lib64", "/usr/lib", "/lib64", "/lib", "/usr/lib/x86_64-linux-gnu",
+                   "/usr/lib/aarch64-linux-gnu", "/usr/local/lib", "/opt/homebrew/lib")
 LIB_NAMES = ("libsodium.so.26", "libsodium.so.23", "libsodium.so", "libsodium.26.dylib", "libsodium.23.dylib",
              "libsodium.dylib")
 
@@ -43,7 +43,8 @@ def _load() -> ctypes.CDLL:
             lib = ctypes.CDLL(candidate)
         except OSError:
             continue
-        if hasattr(lib, "crypto_core_ristretto255_from_hash") and lib.sodium_init() >= 0 and _version(lib) >= MIN_VERSION:
+        if (hasattr(lib, "crypto_core_ristretto255_from_hash") and lib.sodium_init() >= 0
+                and _version(lib) >= MIN_VERSION):
             return lib
     raise RuntimeError("нужна системная libsodium >= 1.0.18 с поддержкой ristretto255")
 
@@ -51,7 +52,7 @@ def _load() -> ctypes.CDLL:
 _lib = _load()
 
 
-class InvalidElement(ValueError):
+class InvalidElementError(ValueError):
     pass
 
 
@@ -75,9 +76,9 @@ def is_valid(p: bytes) -> bool:
 def check(p: bytes) -> bytes:
     """Проверка десериализованной точки: каноничная и не нейтральная (RFC 9497, DeserializeElement)."""
     if not is_valid(p):
-        raise InvalidElement("invalid ristretto255 element")
+        raise InvalidElementError("invalid ristretto255 element")
     if p == IDENTITY:
-        raise InvalidElement("identity element")
+        raise InvalidElementError("identity element")
     return p
 
 
@@ -101,21 +102,21 @@ def scalar_invert(s: int) -> int:
 def mul(s: int, p: bytes) -> bytes:
     out = ctypes.create_string_buffer(ELEMENT_BYTES)
     if _lib.crypto_scalarmult_ristretto255(out, scalar_to_bytes(s), p) != 0:
-        raise InvalidElement("scalar multiplication gave identity")
+        raise InvalidElementError("scalar multiplication gave identity")
     return out.raw
 
 
 def mul_base(s: int) -> bytes:
     out = ctypes.create_string_buffer(ELEMENT_BYTES)
     if _lib.crypto_scalarmult_ristretto255_base(out, scalar_to_bytes(s)) != 0:
-        raise InvalidElement("scalar multiplication gave identity")
+        raise InvalidElementError("scalar multiplication gave identity")
     return out.raw
 
 
 def add(p: bytes, q: bytes) -> bytes:
     out = ctypes.create_string_buffer(ELEMENT_BYTES)
     if _lib.crypto_core_ristretto255_add(out, p, q) != 0:
-        raise InvalidElement("invalid point in addition")
+        raise InvalidElementError("invalid point in addition")
     return out.raw
 
 

@@ -2,6 +2,7 @@
 import asyncio
 
 import pytest
+from harness import Env, person
 from nacl.public import PrivateKey
 from nacl.signing import SigningKey
 
@@ -9,9 +10,7 @@ from veil.core import api, privacy
 from veil.core.crypto import keys
 from veil.core.protocol import b64, envelope, hidden
 from veil.core.transport import exchange as exmod
-from veil.core.transport.exchange import Exchange, NoReply, ServerError
-
-from harness import Env, person
+from veil.core.transport.exchange import Exchange, NoReplyError, ServerError
 
 PHOTO = lambda mid, cap=None, g=None: dict(  # noqa: E731
     {"message_id": mid, "chat": {"id": 111}, "photo": [{"file_id": f"p{mid}", "file_unique_id": f"u{mid}"}]},
@@ -129,7 +128,7 @@ def test_pending_then_result_same_envelope(fast):
 def test_no_reply_after_two_waits(monkeypatch):
     monkeypatch.setattr(exmod, "WAIT", 0.01)
     ex, w, *_ = make_ex()
-    with pytest.raises(NoReply):
+    with pytest.raises(NoReplyError):
         asyncio.run(ex.request("ping", "ephemeral", SigningKey.generate()))
     assert len(w.sent) == 2  # тот же конверт отправлен второй раз
 
@@ -204,7 +203,7 @@ def test_sync_device_rotation_and_enc_set(tmp_path):
     e.server.fail("enc.set", "E_RATE")
     asyncio.run(e.core.sync_device(force=True))  # занято — не ошибка
     e.server.fail("device.get", "E_BOT_NOT_BOUND")
-    with pytest.raises(api.OtherBot):
+    with pytest.raises(api.OtherBotError):
         asyncio.run(e.core.sync_device(force=True))
     e.server.fail("device.get", "E_INTERNAL")
     with pytest.raises(ServerError):
@@ -270,7 +269,7 @@ def test_resume_pending_paths(tmp_path):
     assert [p[0] for p in e.store.pending_posts()] == ["a"]
 
     async def silent(state, auth_key=None):
-        raise NoReply("x")
+        raise NoReplyError("x")
     e.server.resume = silent
     assert asyncio.run(e.core.resume_pending()) == []
     e.core._inflight.add("a")

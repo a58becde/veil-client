@@ -59,16 +59,17 @@ def test_server_returning_both_is_refused(tmp_path, daisy_and_twin):
     """Сервер (взломанный) отдаёт обе личности под одной парой ник·метка: клиент не выбирает наугад — отказ."""
     daisy, twin = daisy_and_twin
     core = core_with(tmp_path, [match(daisy), match(twin)])
-    with pytest.raises(api.Ambiguous):
+    with pytest.raises(api.AmbiguousError):
         asyncio.run(core.find_recipient(DAISY, TAG))
 
 
 def test_twin_signature_must_be_real(tmp_path, daisy_and_twin):
-    """Двойник не может выдать себя за ключ Ромашки: запись с ключом Ромашки, но чужим сертификатом устройства — отказ."""
+    """Двойник не может выдать себя за ключ Ромашки: запись с ключом Ромашки, но чужим сертификатом устройства —
+    отказ."""
     daisy, twin = daisy_and_twin
     forged = dict(match(daisy), dev_pk=b64.enc(twin.dev_pk), dev_sig=b64.enc(twin.dev_sig))
     core = core_with(tmp_path, [forged])
-    with pytest.raises(keys.KeyMismatch):
+    with pytest.raises(keys.KeyMismatchError):
         asyncio.run(core.find_recipient(DAISY, TAG))
 
 

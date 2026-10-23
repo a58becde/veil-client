@@ -110,7 +110,8 @@ def _read_words(batch: bool) -> str:
 def restore(store: Store, batch: bool = False, force: bool = False) -> keys.Device:
     _tty(batch)
     if store.load_device() is not None and not force:
-        raise CliError("На этом боте уже есть личность (data/device.json). Восстановление заменит её — добавьте --force.")
+        raise CliError("На этом боте уже есть личность (data/device.json). "
+                       "Восстановление заменит её — добавьте --force.")
     print("Восстановление личности по 12 словам. Новое устройство отзовёт прежнее (например, украденное).")
     for _attempt in range(3):
         try:
@@ -209,7 +210,8 @@ def pin_issuer(store: Store, cfg: dict, base, batch: bool = False) -> dict:
     if current:
         print(f"Закреплён:     {current.get('kid')} ({_fingerprint(current['pk'])})")
     print(f"В keys.json:   {offered['kid']} ({_fingerprint(offered['pk'])})\n"
-          "Меняйте закрепление, только если смену ключа эмитента объявил сам проект (репозиторий veil-protocol). Ключ из\n"
+          "Меняйте закрепление, только если смену ключа эмитента объявил сам проект (репозиторий veil-protocol). "
+          "Ключ из\n"
           "подсунутого файла позволил бы тому, кто его выдал, узнавать ваши анонимные посты по токенам.")
     if not batch:
         _tty(False)
@@ -249,6 +251,7 @@ def engine(store: Store, cfg: dict, base, action: str, batch: bool = False) -> s
     сборку (хеш закреплён в коде); trust — принять свою сборку. Своя сборка неповторяема (у каждой свой хеш), поэтому
     подтверждается здесь, в терминале, а не настройкой: подсунутый конфиг не подменит движок молча."""
     import asyncio  # noqa: PLC0415 — нужен только fetch
+
     from veil import plugin_engine as pe  # noqa: PLC0415
     path = pe.engine_path(cfg, Path(base))
     if action == "fetch":

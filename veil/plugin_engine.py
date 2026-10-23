@@ -25,7 +25,8 @@ from urllib.parse import urlsplit
 
 import httpx
 
-from veil import plugin_host, plugin_manifest as pm, plugins
+from veil import plugin_host, plugins
+from veil import plugin_manifest as pm
 
 log = logging.getLogger("veil.plugins")
 

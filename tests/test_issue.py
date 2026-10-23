@@ -88,6 +88,7 @@ def test_split_join_many_parts():
 def test_wallet_accepts_response_once_and_rejects_foreign(tmp_path):
     """Ответ эмитента принимается один раз; чужой запрос, лишние элементы и чужой ключ — отказ."""
     import time as _time
+
     from veil.core.store.db import Store
     c = _v()["issue_cross_request"]
     resp = json.loads((VEC / "issue-cross.json").read_text())
@@ -109,6 +110,7 @@ def test_wallet_accepts_response_once_and_rejects_foreign(tmp_path):
 def test_manual_tool_state_is_private(tmp_path):
     """tools.issue_manual пишет секреты ослепления с правами 600 и удаляет их после приёма ответа."""
     import os
+
     from tools import issue_manual
     keys = Path(__file__).resolve().parents[1] / "keys.json"
     if not keys.exists():

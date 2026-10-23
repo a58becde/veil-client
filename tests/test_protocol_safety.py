@@ -28,7 +28,7 @@ def test_strict_json_matches_server():
 
 
 def test_ristretto_check_rejects_identity():
-    with pytest.raises(r255.InvalidElement):
+    with pytest.raises(r255.InvalidElementError):
         r255.check(r255.IDENTITY)
 
 

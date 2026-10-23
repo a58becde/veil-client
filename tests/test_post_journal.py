@@ -49,7 +49,7 @@ from types import SimpleNamespace  # noqa: E402
 
 from veil.core import api, privacy  # noqa: E402
 from veil.core.store.db import Store  # noqa: E402
-from veil.core.transport.exchange import NoReply  # noqa: E402
+from veil.core.transport.exchange import NoReplyError  # noqa: E402
 from veil.core.wallet.issue import Token as IssuedToken  # noqa: E402
 from veil.ui import bot as uibot  # noqa: E402
 
@@ -65,7 +65,7 @@ class _QueueExchange:
     async def request(self, op, auth_mode, auth_key, *, journal=None, **kw):
         journal({"op": op, "auth_mode": auth_mode, "id": "01JA00000000000000000QUEUE", "resp_sk": "x",
                  "auth_seed": "y", "token": kw.get("token")})
-        raise NoReply(op)
+        raise NoReplyError(op)
 
     async def resume(self, state, auth_key=None):
         self.resumed.append(state["id"])
@@ -85,12 +85,12 @@ def _core(tmp_path, monkeypatch, ex):
 
 
 def test_post_secret_saved_before_send(tmp_path, monkeypatch):
-    """ответа нет — PostQueued, секрет сохранён, токен не вернулся в кошелёк; resume публикует итог."""
+    """ответа нет — PostQueuedError, секрет сохранён, токен не вернулся в кошелёк; resume публикует итог."""
     ex = _QueueExchange()
     core = _core(tmp_path, monkeypatch, ex)
     journaled = []
     d = api.Draft(1, [{"message_id": 1, "text": "пост"}], anonymous=True)
-    with pytest.raises(api.PostQueued):
+    with pytest.raises(api.PostQueuedError):
         asyncio.run(core.create_post(d, on_journal=lambda: journaled.append(True)))
     assert journaled == [True]
     [(env_id, secret, kind, state, _)] = core.store.pending_posts()

@@ -58,7 +58,7 @@ def test_device_chain():
     v = keys.verify_lookup_match(m, d["tag"], now=d["now"])
     assert v.enc_pk == b64.dec(m["enc_pk"]) and v.seq == m["seq"]
     for r in d["reject"]:
-        with pytest.raises(keys.KeyMismatch):
+        with pytest.raises(keys.KeyMismatchError):
             keys.verify_lookup_match(r["match"], d["tag"], now=d["now"])
 
 
@@ -186,9 +186,11 @@ def test_market_vectors():
     assert e.encrypted and idx.shop.kid == "s1" and idx.seq == 7
     p = m["package"]
     zip_bytes = market.decrypt_blob(bytes.fromhex(p["blob"]), bytes.fromhex(p["key"]), "hello", "1.2.3")
-    assert zip_bytes.hex() == p["zip"] and market.plugin_message("hello", "1.2.3", e.zip_sha256).hex() == p["author_message"]
+    assert zip_bytes.hex() == p["zip"]
+    assert market.plugin_message("hello", "1.2.3", e.zip_sha256).hex() == p["author_message"]
     assert market.verify_plugin(e.author_pk, "hello", "1.2.3", e.zip_sha256, e.author_sig)
-    assert market.encrypt_blob(zip_bytes, bytes.fromhex(p["key"]), "hello", "1.2.3", bytes.fromhex(p["nonce"])).hex() == p["blob"]
+    blob = market.encrypt_blob(zip_bytes, bytes.fromhex(p["key"]), "hello", "1.2.3", bytes.fromhex(p["nonce"]))
+    assert blob.hex() == p["blob"]
     lic = m["license"]
     st = poprf.blind(bytes.fromhex(lic["input"]), int.from_bytes(bytes.fromhex(lic["blind"]), "little"))
     assert st.blinded.hex() == lic["blinded"] and (market.LICENSE_INFO + b"hello").decode() == lic["info"]
@@ -216,7 +218,8 @@ def test_license_cross():
     mixin = market.LicenseMixin()
     mixin.store = Store(market_orders={"hello": {"kid": res["kid"], "pk": res["pk"],
                                                  "input": b64.enc(bytes.fromhex(lic["input"])),
-                                                 "blind": format(int.from_bytes(bytes.fromhex(lic["blind"]), "little"), "x")}})
+                                                 "blind": format(
+                                                     int.from_bytes(bytes.fromhex(lic["blind"]), "little"), "x")}})
     assert mixin.accept_license(res["response"]) == "hello"
     assert b64.dec(mixin.licenses()["hello"]["output"]).hex() == res["output"]
 

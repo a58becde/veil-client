@@ -10,15 +10,16 @@ import secrets
 
 import pytest
 from nacl.signing import SigningKey, VerifyKey
+from plugkit import shutdown
+from test_market import Catalog, bot, buttons, go, said, settle  # noqa: F401 — общий стенд маркета
 
-from veil import market, market_tool as tool
-from veil.core.crypto import poprf, ristretto as r255
+from veil import market
+from veil import market_tool as tool
+from veil.core.crypto import poprf
+from veil.core.crypto import ristretto as r255
 from veil.core.protocol import b64, jcs
 from veil.core.transport.exchange import ServerError
 from veil.ui import bot as uibot
-
-from plugkit import shutdown
-from test_market import Catalog, bot, buttons, go, said, settle  # noqa: F401 — общий стенд маркета
 
 lp = poprf._lp
 
@@ -195,7 +196,7 @@ def test_buy_install_update_in_bot(tmp_path):
             await e.ui.market_ui.open()
             await go(e, e.press("mk:v:hello"))
             assert said(e, "Платный плагин: ⭐ 50") and "mk:b:hello" in buttons(e) and "mk:i:hello" not in buttons(e)
-            await go(e, e.press("mk:i:hello"))                              # кнопку подделали — без лицензии не ставится
+            await go(e, e.press("mk:i:hello"))                       # кнопку подделали — без лицензии не ставится
             assert said(e, "лицензии на этот плагин нет") and not m.installed()
             await go(e, e.press("mk:b:hello"))
             assert said(e, "боту-магазину @veil_shop_bot")
@@ -236,7 +237,8 @@ def test_license_used_elsewhere(tmp_path):
         lic = None
         await go(a, a.msg(answer))
         lic = a.store.get("market_licenses")["hello"]
-        b.store.put("market_licenses", {"hello": {**lic, "lic_sk": b64.enc(bytes(SigningKey.generate())), "cert": None}})
+        b.store.put("market_licenses",
+                    {"hello": {**lic, "lic_sk": b64.enc(bytes(SigningKey.generate())), "cert": None}})
         await b.ui.market_ui.open()
         await go(b, b.press("mk:i:hello"))
         assert said(b, "уже активирована в другой установке")

@@ -82,30 +82,35 @@ def blind(inp: bytes, blind_scalar: int | None = None) -> BlindState:
     return BlindState(inp, blind_scalar, r255.mul(blind_scalar, p))
 
 
-def _composites(B: bytes, C: list[bytes], D: list[bytes]) -> tuple[bytes, bytes]:
+def _composites(
+    B: bytes, C: list[bytes], D: list[bytes],  # noqa: N803 - обозначения из RFC 9497 (DLEQ)
+) -> tuple[bytes, bytes]:
     seed_dst = b"Seed-" + CONTEXT
     seed = hashlib.sha512(_lp(B) + _lp(seed_dst)).digest()
-    M = Z = None
+    M = Z = None  # noqa: N806 - обозначения из RFC 9497
     for i, (c, d) in enumerate(zip(C, D)):
         di = hash_to_scalar(_lp(seed) + _i2osp2(i) + _lp(c) + _lp(d) + b"Composite")
         mc, md = r255.mul(di, c), r255.mul(di, d)
-        M = mc if M is None else r255.add(M, mc)
-        Z = md if Z is None else r255.add(Z, md)
+        M = mc if M is None else r255.add(M, mc)  # noqa: N806 - RFC 9497
+        Z = md if Z is None else r255.add(Z, md)  # noqa: N806 - RFC 9497
     if M is None or Z is None:  # не assert: при python -O проверка исчезла бы
         raise ValueError("empty batch")
     return M, Z
 
 
-def verify_proof(A: bytes, B: bytes, C: list[bytes], D: list[bytes], proof: bytes) -> bool:
+def verify_proof(
+    A: bytes, B: bytes, C: list[bytes], D: list[bytes],  # noqa: N803 - обозначения из RFC 9497 (DLEQ)
+    proof: bytes,
+) -> bool:
     if len(proof) != 64 or not C or len(C) != len(D):
         return False
     try:
         c = r255.scalar_from_bytes(proof[:32])
         s = r255.scalar_from_bytes(proof[32:])
-        M, Z = _composites(B, C, D)
+        M, Z = _composites(B, C, D)  # noqa: N806 - обозначения из RFC 9497
         t2 = r255.add(r255.mul(s, A) if s else r255.IDENTITY, r255.mul(c, B) if c else r255.IDENTITY)
         t3 = r255.add(r255.mul(s, M) if s else r255.IDENTITY, r255.mul(c, Z) if c else r255.IDENTITY)
-    except (ValueError, r255.InvalidElement):
+    except (ValueError, r255.InvalidElementError):
         return False
     expected = hash_to_scalar(_lp(B) + _lp(M) + _lp(Z) + _lp(t2) + _lp(t3) + b"Challenge")
     return expected == c
@@ -118,8 +123,8 @@ def finalize_batch(states: list[BlindState], evaluated: list[bytes], proof: byte
         raise ProofError("batch size mismatch")
     for e in evaluated:
         r255.check(e)
-    T = tweaked_key(pk, info)
-    G = r255.mul_base(1)
+    T = tweaked_key(pk, info)  # noqa: N806 - обозначения из RFC 9497
+    G = r255.mul_base(1)  # noqa: N806 - обозначения из RFC 9497
     if not verify_proof(G, T, evaluated, [s.blinded for s in states], proof):
         raise ProofError("DLEQ proof verification failed")
     out = []

@@ -3,7 +3,8 @@ from pathlib import Path
 
 from veil.core.crypto import poprf
 
-VEC = json.loads((Path(__file__).parents[2] / "veil-protocol/test-vectors/rfc9497-poprf-ristretto255-sha512.json").read_text())
+VEC = json.loads(
+    (Path(__file__).parents[2] / "veil-protocol/test-vectors/rfc9497-poprf-ristretto255-sha512.json").read_text())
 
 
 def _split(h):
@@ -39,7 +40,8 @@ def test_wrong_info_rejected():
     pk = bytes.fromhex(VEC["pkSm"])
     st = [poprf.blind(bytes.fromhex(v["Input"]), int.from_bytes(bytes.fromhex(v["Blind"]), "little"))]
     try:
-        poprf.finalize_batch(st, [bytes.fromhex(v["EvaluationElement"])], bytes.fromhex(v["Proof"]["proof"]), pk, b"other day")
+        poprf.finalize_batch(st, [bytes.fromhex(v["EvaluationElement"])], bytes.fromhex(v["Proof"]["proof"]),
+                             pk, b"other day")
     except poprf.ProofError:
         return
     raise AssertionError("proof for other info accepted")
@@ -62,7 +64,9 @@ def test_cross_with_go_issuer():
 def test_scalar_invert_constant_time_matches_pow():
     """Обращение ослепляющего скаляра — libsodium (за постоянное время), результат как у pow(s, -1, L)."""
     import secrets
+
     import pytest
+
     from veil.core.crypto import ristretto as r255
     for _ in range(50):
         s = secrets.randbelow(r255.L - 1) + 1

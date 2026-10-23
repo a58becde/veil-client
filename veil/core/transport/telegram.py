@@ -67,7 +67,8 @@ class Bot:
 
     async def _post_files(self, method: str, form: dict, files: dict) -> Any:
         try:
-            r = await self._http.post(self._url + method, data=form, files=files, timeout=httpx.Timeout(300.0, connect=15.0))
+            r = await self._http.post(self._url + method, data=form, files=files,
+                                      timeout=httpx.Timeout(300.0, connect=15.0))
         except httpx.HTTPError as e:
             raise TelegramError(method, 0, type(e).__name__) from None
         return self._result(method, r)

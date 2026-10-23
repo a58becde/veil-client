@@ -8,12 +8,25 @@ import sys
 
 import httpx
 import pytest
+from plugkit import (
+    ROOT,
+    WASM,
+    bot,
+    engine_sha,
+    go,
+    manifest,
+    new_engine,
+    package,
+    settle,
+    shutdown,
+    start_all,
+    stored,
+    texts,
+)
 
-from veil import plugin_engine, plugin_manifest as pm, plugins, seccomp
+from veil import plugin_engine, plugins, seccomp
+from veil import plugin_manifest as pm
 from veil.ui import bot as uibot
-
-from plugkit import ROOT, WASM, bot, engine_sha, go, manifest, new_engine, package, settle, shutdown, start_all, \
-    stored, texts
 
 linux = pytest.mark.skipif(not sys.platform.startswith("linux"), reason="защита ОС хоста — только Linux")
 
@@ -528,7 +541,8 @@ def test_sdk_matches_bot():
     assert sdk.ACTION.pattern == plugins.ACTION.pattern and sdk.HOST.pattern == pm.HOST.pattern
     assert sdk.ID.pattern == pm.ID.pattern
     assert (sdk.BUTTON_TEXT_MAX, sdk.BUTTON_DATA_MAX, sdk.BUTTONS_MAX, sdk.LINK_LABEL, sdk.LINK_HOSTS_MAX) == \
-        (plugins.BUTTON_TEXT_MAX, plugins.BUTTON_DATA_MAX, plugins.BUTTONS_MAX, plugins.LINK_LABEL, plugins.LINK_HOSTS_MAX)
+        (plugins.BUTTON_TEXT_MAX, plugins.BUTTON_DATA_MAX, plugins.BUTTONS_MAX, plugins.LINK_LABEL,
+         plugins.LINK_HOSTS_MAX)
     assert set(sdk.EVENT_TYPES) == set(pm.EVENT_PERMISSION)
     for name in ("Reply", "Private", "Published", "Failure", "Outgoing", "Press", "Link"):
         assert list(getattr(sdk, name).__dataclass_fields__) == list(getattr(plugins, name).__dataclass_fields__), name
@@ -637,8 +651,8 @@ def test_cli_engine_status_and_trust(tmp_path, capsys):
     eng = plugin_engine.make_engine(cfg, tmp_path, tmp_path / "data", store)
     assert "не совпадает с официальной" in eng.problem()
     sha = cli.engine(store, cfg, tmp_path, "trust", batch=True)
-    assert store["engine_trusted"] == [sha] and "своя сборка, подтверждена" in (cli.engine(store, cfg, tmp_path, "status")
-                                                                              and capsys.readouterr().out)
+    assert store["engine_trusted"] == [sha] and "своя сборка, подтверждена" in (
+        cli.engine(store, cfg, tmp_path, "status") and capsys.readouterr().out)
     assert plugin_engine.make_engine(cfg, tmp_path, tmp_path / "data", store).problem() is None
     with pytest.raises(cli.CliError):
         cli.engine(store, {}, tmp_path, "nope")

@@ -3,9 +3,9 @@ import asyncio
 import textwrap
 from pathlib import Path
 
-from veil import plugin_dev
-
 from plugkit import ROOT, WASM, engine_sha
+
+from veil import plugin_dev
 
 
 def package(tmp_path, code: str, permissions=("commands", "notify")) -> Path:
@@ -142,6 +142,7 @@ def test_buttons_questions_and_links_in_console(tmp_path):
 def test_precompiled_cache_never_compiles(tmp_path):
     """--cache: машинный код берётся готовым (сервер пула); нет его — понятный отказ, а не компиляция на ~350 МБ."""
     import shutil
+
     from veil import plugin_host
     pdir = package(tmp_path, """
         from veil import plugins

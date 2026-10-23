@@ -15,9 +15,9 @@ from nacl.signing import SigningKey
 
 from veil import market
 from veil.core import api as coreapi
+from veil.core import privacy
 from veil.core.crypto import bip39, keys, poprf
 from veil.core.identity import nick
-from veil.core import privacy
 from veil.core.protocol import b64, content, envelope, errors, hidden, jcs
 from veil.core.wallet import issue
 
@@ -58,7 +58,8 @@ def main() -> None:
     seed = bip39.to_seed(m)
     root = keys.root_from_seed(seed)
     id_pk = bytes(root.verify_key)
-    v["identity"] = [{"entropy": h(entropy), "mnemonic": m, "seed": h(seed), "id_pk": b64.enc(id_pk), "tag": keys.tag(id_pk)}]
+    v["identity"] = [{"entropy": h(entropy), "mnemonic": m, "seed": h(seed), "id_pk": b64.enc(id_pk),
+                      "tag": keys.tag(id_pk)}]
     dev = SigningKey(det("device_sk"))
     seq, exp = 1792000000, 1792000000 + keys.ENC_LIFETIME
     enc = PrivateKey(det("enc_sk"))
@@ -74,7 +75,7 @@ def main() -> None:
         mm = dict(match, **kw)
         try:
             keys.verify_lookup_match(mm, keys.tag(id_pk), now=seq)
-        except keys.KeyMismatch:
+        except keys.KeyMismatchError:
             return {"why": why, "match": mm}
         raise AssertionError(why)
     v["device"] = {
@@ -82,7 +83,8 @@ def main() -> None:
         "device_sk": h(det("device_sk")), "enc_sk": h(bytes(enc)),
         "device_message": h(dmsg), "enc_message": h(emsg), "now": seq, "tag": keys.tag(id_pk), "match": match,
         "reject": [
-            forged("enc_pk substituted (server swapped the key)", enc_pk=b64.enc(bytes(PrivateKey(det("evil")).public_key))),
+            forged("enc_pk substituted (server swapped the key)",
+                   enc_pk=b64.enc(bytes(PrivateKey(det("evil")).public_key))),
             forged("device certified by another root", dev_sig=b64.enc(other.sign(dmsg).signature)),
             forged("seq changed after signing", seq=seq + 1),
             forged("enc_exp extended after signing", enc_exp=exp + 86400),
@@ -118,7 +120,8 @@ def main() -> None:
                  [{"offset": 3, "length": 4, "type": "text_link", "url": "https://example.com/x"},
                   {"offset": 8, "length": 3, "type": "pre", "language": "go"},
                   {"offset": 12, "length": 2, "type": "custom_emoji", "custom_emoji_id": "5368324170671202286"},
-                  {"offset": 15, "length": 4, "type": "text_mention", "user": {"id": 123456789, "is_bot": False, "first_name": "X"}}],
+                  {"offset": 15, "length": 4, "type": "text_mention",
+                   "user": {"id": 123456789, "is_bot": False, "first_name": "X"}}],
                  [{"offset": 0, "length": 5, "type": "date_time", "unix_time": 1792000000, "date_time_format": "r"}]]
     v["entities_sha256"] = [{"entities": c, "sha256": content.entities_sha256(c)} for c in ent_cases]
 
@@ -188,8 +191,10 @@ def main() -> None:
 
     cases = [
         ("Вася", True), ("  Вася  ", True), ("Ва", True), ("В", False), ("x" * 32, True), ("x" * 33, False),
-        ("👨\u200d👩\u200d👧\u200d👦👨\u200d👩\u200d👧\u200d👦", True), ("Вася·7f3a", False), ("Ва\u200bся", False), ("Ва\u202eся", False),
-        ("Ва\nся", False), ("Ва  ся", False), ("Ва\u00a0ся", False), ("éé", True), ("Ва ся", True), ("Ва\u200dся", False), ("👍🏽\u200d", False), ("👍🏽\u200d👍x", True),
+        ("👨\u200d👩\u200d👧\u200d👦👨\u200d👩\u200d👧\u200d👦", True), ("Вася·7f3a", False), ("Ва\u200bся", False),
+        ("Ва\u202eся", False),
+        ("Ва\nся", False), ("Ва  ся", False), ("Ва\u00a0ся", False), ("éé", True), ("Ва ся", True),
+        ("Ва\u200dся", False), ("👍🏽\u200d", False), ("👍🏽\u200d👍x", True),
         # невидимые заполнители и селекторы вариантов (2026-10-16)
         ("\u3164\u3164", False), ("Ва\u034fся", False), ("Ва\ufe00ся", False), ("a\u00adb", False), ("❤️Love", True),
         # пределы: знаки на графему и кодовые точки
@@ -205,8 +210,10 @@ def main() -> None:
         "same": [["Anna", "Аnna", "АNNA", "anna", "A n n a"], ["Вася", "Bacя", "ВАСЯ", "вася", "ʙacᴙ"],
                  ["Bob0", "BobO", "Воb0"], ["l1l", "I|l", "1Il"], ["paypal", "раураl"],
                  # знаки препинания и символы не различают ники одной метки (сценарий «двойник», 2026-10-17)
-                 ["Ромашка у дороги", "Ромашка у дороги!", "Ромашка-у-дороги", "«Ромашка» у дороги…", "Ромашка у дороги ❤️"]],
-        "different": [["Вася", "Петя"], ["Имя", "Им"], ["Вася", "Васяя"], ["ёлка", "елка"], ["Ромашка у дороги", "Ромашка у порога"]],
+                 ["Ромашка у дороги", "Ромашка у дороги!", "Ромашка-у-дороги", "«Ромашка» у дороги…",
+                  "Ромашка у дороги ❤️"]],
+        "different": [["Вася", "Петя"], ["Имя", "Им"], ["Вася", "Васяя"], ["ёлка", "елка"],
+                      ["Ромашка у дороги", "Ромашка у порога"]],
     }
     v["nick"] = []
     for inp, ok in cases:
@@ -240,8 +247,10 @@ def main() -> None:
     v["hidden_to"] = {"note": "sealed box is random; recipient must open it", "enc_sk": h(bytes(rk)),
                       "payload": hpp.decode(), "blob": b64.enc(hidden.seal_to(hpp, bytes(rk.public_key)))}
     v["padding"] = {"pad_block": hidden.PAD_BLOCK, "padded_payload_len": len(hpp),
-                    "padme": [[n, hidden.padme(n)] for n in (0, 1, 2, 9, 100, 1000, 4097, 65537, 1 << 20, 19 * 10 ** 6)]}
-    v["hidden_reject"] = [h(hidden.seal_all(b'{"text":""}', hk, hn)[0]), h(hidden.seal_all(b'{"text":"x","extra":1}', hk, hn)[0]),
+                    "padme": [[n, hidden.padme(n)]
+                              for n in (0, 1, 2, 9, 100, 1000, 4097, 65537, 1 << 20, 19 * 10 ** 6)]}
+    v["hidden_reject"] = [h(hidden.seal_all(b'{"text":""}', hk, hn)[0]),
+                          h(hidden.seal_all(b'{"text":"x","extra":1}', hk, hn)[0]),
                           h(hidden.seal_all(b'{"text":"x","text":"y"}', hk, hn)[0])]
 
     # Выдача токенов (spec/03): полный запрос VEILREQ на два дня разных недель (два kid).
@@ -259,7 +268,8 @@ def main() -> None:
         "blinds": {d: [h(poprf.r255.scalar_to_bytes(x)) for x in xs] for d, xs in bls.items()},
         "parts": parts,
     }
-    good = issue.encode(issue.IssueMessage(b"\x01" * 8, [issue.Day("2026-10-18", "k2026w42", [pending.states["2026-10-18"][1][0].blinded])]), False)
+    blinded = pending.states["2026-10-18"][1][0].blinded
+    good = issue.encode(issue.IssueMessage(b"\x01" * 8, [issue.Day("2026-10-18", "k2026w42", [blinded])]), False)
     v["issue_reject"] = [
         {"why": "bad magic", "hex": h(b"VQ2" + good[3:])},
         {"why": "zero days", "hex": h(good[:11] + b"\x00")},
@@ -303,7 +313,8 @@ def main() -> None:
         ["audio", "document"], ["video", "audio"], ["photo"], ["photo"] * 10, ["photo"] * 11, ["photo", "animation"],
         ["photo", "voice"])]
 
-    # Маркет плагинов (spec/10): подписанный индекс, зашифрованный пакет, запрос лицензии, сертификат и подпись установки.
+    # Маркет плагинов (spec/10): подписанный индекс, зашифрованный пакет, запрос лицензии, сертификат и подпись
+    # установки.
     cat_sk, author_sk = SigningKey(det("catalog_key")), SigningKey(det("author_key"))
     shop_pk = h(det("shop_pk_placeholder"))  # в индексе — любой 32-байтный ключ; настоящий ключ магазина — license
     zip_bytes = b"PK\x05\x06" + bytes(18)   # пустой zip: формату шифрования содержимое безразлично

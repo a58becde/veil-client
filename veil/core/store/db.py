@@ -224,7 +224,7 @@ class Store:
         except FileNotFoundError:
             return None
         d = Device.from_json(raw)
-        if d.tag != raw.get("tag"):  # метка пересчитана под новую длину — сохранить, чтобы не считать при каждом запуске
+        if d.tag != raw.get("tag"):  # метка пересчитана под новую длину — сохранить, чтобы не считать каждый раз
             self.save_device(d)
         return d
 
@@ -254,7 +254,8 @@ class Store:
         if value is None:
             self.db.execute("DELETE FROM meta WHERE key = ?", (key,))
         else:
-            self.db.execute("INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+            self.db.execute("INSERT INTO meta (key, value) VALUES (?, ?) "
+                            "ON CONFLICT (key) DO UPDATE SET value = excluded.value",
                             (key, json.dumps(value, ensure_ascii=False)))
 
     # --- токены ---
@@ -262,7 +263,8 @@ class Store:
         """origin — id переноса VEILTOK, если токены пришли от другого бота (их тратят после своих)."""
         n = 0
         for t in toks:
-            cur = self.db.execute("INSERT OR IGNORE INTO tokens (kid, day, input, output, origin) VALUES (?, ?, ?, ?, ?)",
+            cur = self.db.execute("INSERT OR IGNORE INTO tokens (kid, day, input, output, origin) "
+                                  "VALUES (?, ?, ?, ?, ?)",
                                   (t.kid, t.day, t.input, t.output, origin))
             n += cur.rowcount
         return n
@@ -272,7 +274,8 @@ class Store:
         знает отдавший, и проверить их можно только тратой."""
         self.db.execute("BEGIN IMMEDIATE")
         try:
-            row = self.db.execute("SELECT id, kid, day, input, output, origin FROM tokens WHERE day = ? AND status = 'ready' "
+            row = self.db.execute("SELECT id, kid, day, input, output, origin FROM tokens "
+                                  "WHERE day = ? AND status = 'ready' "
                                   "ORDER BY origin != '', id LIMIT 1", (day,)).fetchone()
             if row:
                 self.db.execute("UPDATE tokens SET status = 'reserved' WHERE id = ?", (row[0],))
@@ -298,7 +301,8 @@ class Store:
 
     def revive_tokens(self, ids: list[int]) -> int:
         """Вернуть отданные токены (перенос не состоялся): только те, что этот бот сам отдал (give_tokens)."""
-        return sum(self.db.execute("UPDATE tokens SET status = 'ready' WHERE id = ? AND status = 'spent'", (i,)).rowcount
+        return sum(self.db.execute("UPDATE tokens SET status = 'ready' WHERE id = ? AND status = 'spent'",
+                                   (i,)).rowcount
                    for i in ids)
 
     def finish_token(self, tok: Token, status: str) -> None:
@@ -327,7 +331,8 @@ class Store:
 
     # --- запросы токенов ---
     def save_issue_request(self, req_id: str, state: dict) -> None:
-        self.db.execute("INSERT OR REPLACE INTO issue_requests VALUES (?, ?, ?)", (req_id, json.dumps(state), int(time.time())))
+        self.db.execute("INSERT OR REPLACE INTO issue_requests VALUES (?, ?, ?)",
+                        (req_id, json.dumps(state), int(time.time())))
 
     def issue_request(self, req_id: str) -> dict | None:
         row = self.db.execute("SELECT state FROM issue_requests WHERE req_id = ?", (req_id,)).fetchone()
@@ -336,7 +341,8 @@ class Store:
     def add_issue_part(self, req_id: str, i: int, n: int, text: str) -> list[str] | None:
         """Сохраняет часть VEILRES; возвращает все части, когда собраны."""
         self.db.execute("INSERT OR REPLACE INTO issue_parts VALUES (?, ?, ?, ?)", (req_id, i, n, text))
-        rows = self.db.execute("SELECT i, text FROM issue_parts WHERE req_id = ? AND n = ? ORDER BY i", (req_id, n)).fetchall()
+        rows = self.db.execute("SELECT i, text FROM issue_parts WHERE req_id = ? AND n = ? ORDER BY i",
+                               (req_id, n)).fetchall()
         return [t for _, t in rows] if len(rows) == n else None
 
     def drop_stale_issue_requests(self, days: int = 9) -> int:
@@ -380,13 +386,15 @@ class Store:
         только за этот срок. 0 — хранить всегда. Старше срока — ни правки, ни удаления, ни уведомлений об ответах."""
         if keep_days <= 0:
             return 0
-        return self.db.execute("DELETE FROM my_posts WHERE created < ?", (int(time.time()) - keep_days * 86400,)).rowcount
+        return self.db.execute("DELETE FROM my_posts WHERE created < ?",
+                               (int(time.time()) - keep_days * 86400,)).rowcount
 
     # --- отправленные, но не подтверждённые посты ---
     def save_pending_post(self, env_id: str, secret: bytes, kind: str, state: dict) -> None:
         """Секрет поста и конверт сохраняются до отправки: если ответ не придёт (перезапуск, очередь длиннее
         повторов), тот же конверт дозапросит результат, и право править и удалять пост не потеряется."""
-        self.db.execute("INSERT OR REPLACE INTO pending_posts (id, post_secret, kind, state, created) VALUES (?, ?, ?, ?, ?)",
+        self.db.execute("INSERT OR REPLACE INTO pending_posts (id, post_secret, kind, state, created) "
+                        "VALUES (?, ?, ?, ?, ?)",
                         (env_id, secret, kind, json.dumps(state, ensure_ascii=False), int(time.time())))
 
     def pending_posts(self) -> list[tuple[str, bytes, str, dict, int]]:

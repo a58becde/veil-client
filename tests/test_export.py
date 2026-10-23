@@ -31,7 +31,8 @@ def bot_store(tmp, name, *, device=True, tokens=5, posts=2):
     s.put("owner_id", 111)
     if device:
         s.save_device(keys.issue_device(SigningKey.generate()))
-    s.add_tokens([Token("t1", TODAY, hashlib.sha256(f"{name}{i}".encode()).digest(), bytes([i]) * 64) for i in range(tokens)])
+    s.add_tokens([Token("t1", TODAY, hashlib.sha256(f"{name}{i}".encode()).digest(), bytes([i]) * 64)
+                  for i in range(tokens)])
     for n in range(1, posts + 1):
         s.add_post(n, bytes([n]) * 32, f"https://t.me/c/1/{n}", "text")
     s.put("contacts", {"ромашка·k7m2qa": b64.enc(bytes(32))})
@@ -366,7 +367,8 @@ def test_import_contact_seq_bounded(tmp_path):
     assert dst.get("contact_seq") == {ok: seqs[ok]}
 
 
-@pytest.mark.parametrize("plain", [b'{"v":1,"v":1}', b'{"v":1,"tokens":[1.5]}', b'{"v":1,"created":123456789012345678901234567890}'])
+@pytest.mark.parametrize("plain", [b'{"v":1,"v":1}', b'{"v":1,"tokens":[1.5]}',
+                                   b'{"v":1,"created":123456789012345678901234567890}'])
 def test_import_parses_json_strictly(tmp_path, plain):
     """Файл экспорта разбирается тем же строгим JSON, что и протокол (docs/EXPORT.md): дубли ключей, дробные и
     огромные числа — «файл повреждён»."""
@@ -389,7 +391,8 @@ def test_licenses_move_with_the_bot(tmp_path):
     mine = lic()
     dst.put("market_licenses", {"pro": mine})
     r = ex.apply(dst, roundtrip(ex.collect(src, 42, CFG)), bot_id=42, issuer_kid="t1")
-    assert r["licenses"] == 1 and dst.get("market_licenses") == {"pro": mine, "fresh": src.get("market_licenses")["fresh"]}
+    assert r["licenses"] == 1
+    assert dst.get("market_licenses") == {"pro": mine, "fresh": src.get("market_licenses")["fresh"]}
     assert "лицензий 1" in ex.format_report(r)
 
 

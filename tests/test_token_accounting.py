@@ -3,13 +3,12 @@ import asyncio
 import hashlib
 
 import pytest
+from harness import Env
 
 from veil.core import api
 from veil.core.store.db import Store
-from veil.core.transport.exchange import NoReply, ServerError
+from veil.core.transport.exchange import NoReplyError, ServerError
 from veil.core.wallet.issue import Token
-
-from harness import Env
 
 
 def tokens(store: Store, n: int, origin: str = "", seed: str = "own") -> None:
@@ -36,7 +35,7 @@ def test_token_error_after_pending_keeps_post(tmp_path):
         raise ServerError("E_TOKEN_DAY", accepted=True)
     e.core.exchange.request = request
     d = api.Draft(e.ui.owner, [{"message_id": 1, "text": "пост", "chat": {"id": 1}}])
-    with pytest.raises(api.PostQueued):
+    with pytest.raises(api.PostQueuedError):
         asyncio.run(e.core.create_post(d))
     assert calls == ["post.create"] and statuses(e.store) == {"spent": 1, "ready": 2}
     assert [p[0] for p in e.store.pending_posts()] == ["01JA000000000000000000PEND"]
@@ -63,9 +62,9 @@ def test_no_reply_without_journal_returns_token(tmp_path):
     e.store.add_post(5, bytes(32), "", "text")
 
     async def request(op, *a, **kw):
-        raise NoReply(op)
+        raise NoReplyError(op)
     e.core.exchange.request = request
-    with pytest.raises(NoReply):
+    with pytest.raises(NoReplyError):
         asyncio.run(e.core.delete_post(5))
     assert statuses(e.store) == {"ready": 1}
 

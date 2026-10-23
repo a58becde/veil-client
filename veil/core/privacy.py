@@ -25,7 +25,8 @@ from typing import Awaitable, Callable
 
 from nacl.signing import SigningKey
 
-from veil.core.protocol import b64, content as contentmod, envelope, hidden, jcs
+from veil.core.protocol import b64, envelope, hidden, jcs
+from veil.core.protocol import content as contentmod
 
 HIDDEN_LINK = "[ссылка скрыта 🔐]"
 HIDDEN_MESSAGE = "[сообщение скрыто 🔐]"
@@ -246,7 +247,8 @@ def _hidden_payload_size(d, msgs: list[dict], k: str, has_media: bool) -> int:
                  for i in (file_info(m) for m in msgs) if i]
     try:
         if d.hide == "to":  # «лично для» несёт post_pk поста (43 символа base64url) и выравнивается
-            pl = hidden.payload(text, ents or None, allow_empty=True, files=files, file_key=bytes(32) if files else None,
+            pl = hidden.payload(text, ents or None, allow_empty=True, files=files,
+                                file_key=bytes(32) if files else None,
                                 post_pk=b64.enc(bytes(32)))
             return len(hidden.padded(pl))
         return len(hidden.payload(text, ents or None, allow_empty=True))
@@ -276,7 +278,8 @@ def _envelope_overflow(d, msgs, k, has_media) -> int:
     content = {"kind": k, "text_sha256": "0" * 64, "files": ["A" * 20] * n_files}
     token = {"scheme": "poprf-r255-v1", "kid": "2026-W42", "day": "2026-10-16",
              "input": b64.enc(bytes(32)), "output": b64.enc(bytes(64))}
-    env, _ = envelope.build("post.create", "identity", SigningKey(bytes(32)), "i1", body=body, token=token, content=content)
+    env, _ = envelope.build("post.create", "identity", SigningKey(bytes(32)), "i1", body=body, token=token,
+                            content=content)
     return envelope_size(env) - ENVELOPE_LIMIT
 
 

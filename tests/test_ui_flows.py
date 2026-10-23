@@ -2,14 +2,13 @@
 import asyncio
 
 import pytest
+from harness import OWNER, Env, person
 
 from veil.core import api
 from veil.core.protocol import b64, hidden
-from veil.core.transport.exchange import NoReply, ServerError
+from veil.core.transport.exchange import NoReplyError, ServerError
 from veil.core.transport.telegram import TelegramError
 from veil.ui import bot as uibot
-
-from harness import OWNER, Env, person
 
 
 @pytest.fixture(autouse=True)
@@ -221,7 +220,7 @@ def test_check_draft_server_problems(tmp_path):
     assert any(d.endswith(":send") for d in e.last_markup_data())
 
     async def silent(*a, **kw):
-        raise NoReply("post.check")
+        raise NoReplyError("post.check")
     e.server.request = silent
     e.route(e.msg("z"))
     assert any(d.endswith(":send") for d in e.last_markup_data())
@@ -331,7 +330,8 @@ def test_delete_partly_and_not_mine(tmp_path):
 
 
 # --- ошибки сервера в _run ---
-@pytest.mark.parametrize("code,expect", [("E_TOO_LONG", "7"), ("E_RATE", "Подождите"), ("E_WHATEVER", "Действие не выполнено"),
+@pytest.mark.parametrize("code,expect", [("E_TOO_LONG", "7"), ("E_RATE", "Подождите"),
+                                         ("E_WHATEVER", "Действие не выполнено"),
                                          ("E_NOT_OWNER", "не ваш пост")])
 def test_server_errors_explained(tmp_path, code, expect):
     e = Env(tmp_path)
@@ -347,9 +347,11 @@ def test_run_other_failures(tmp_path):
 
     async def boom(exc):
         raise exc
-    cases = [(NoReply("x"), "не ответил"), (api.PostQueued(), "в очереди"), (api.NotMine(3), "не ваш пост"),
-             (api.NoIdentity(), "Личности ещё нет"), (api.DeviceRevoked(), "восстановлена"),
-             (api.OtherBot(), "привязана к другому боту"), (ValueError("envelope too large: 1"), "слишком большое"),
+    cases = [(NoReplyError("x"), "не ответил"), (api.PostQueuedError(), "в очереди"),
+             (api.NotMineError(3), "не ваш пост"),
+             (api.NoIdentityError(), "Личности ещё нет"), (api.DeviceRevokedError(), "восстановлена"),
+             (api.OtherBotError(), "привязана к другому боту"),
+             (ValueError("envelope too large: 1"), "слишком большое"),
              (ValueError("other"), "Внутренняя ошибка"), (RuntimeError("bug"), "Внутренняя ошибка")]
     for exc, frag in cases:
         e.run(e.ui._run(lambda exc=exc: boom(exc), lambda r: "ok"))
@@ -414,8 +416,9 @@ def test_top_up_and_full(tmp_path):
     e.route(e.press("tok:req"))
     assert has(e, "другой ключ эмитента")
     full = Env(tmp_path / "f", tokens=0)
-    from veil.core.wallet.issue import Token
     from datetime import datetime, timedelta, timezone
+
+    from veil.core.wallet.issue import Token
     start = datetime.now(timezone.utc).date()
     kid = full.store.get("pinned_issuer")["kid"]
     full.store.add_tokens([Token(kid, (start + timedelta(days=d)).isoformat(), bytes([d, i]) + bytes(30), bytes(64))

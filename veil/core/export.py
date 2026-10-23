@@ -39,7 +39,8 @@ SEQ_AHEAD = 86400  # seq сертификата не дальше суток в 
 # Настройки, которые переносятся: (раздел, ключ) → проверка значения.
 SETTINGS = {
     ("privacy", "random_delay_seconds"): lambda v: (isinstance(v, list) and len(v) == 2 and
-                                                    all(isinstance(x, int) and 0 <= x <= 3600 for x in v) and v[0] <= v[1]),
+                                                    all(isinstance(x, int) and 0 <= x <= 3600 for x in v)
+                                                    and v[0] <= v[1]),
     ("privacy", "keep_posts_days"): lambda v: isinstance(v, int) and 0 <= v <= 3650,
     ("privacy", "auto_sync_feed_seconds"): lambda v: isinstance(v, int) and (v == 0 or 30 <= v <= 86400),
     ("ui", "locale"): lambda v: isinstance(v, str) and re.fullmatch(r"[a-z]{2}", v) is not None,
@@ -290,8 +291,8 @@ def apply(store, bundle: dict, *, bot_id: int, issuer_kid: str, force: bool = Fa
     store.db.execute("BEGIN IMMEDIATE")
     try:
         report["tokens"] = store.add_tokens(toks)
-        store.db.executemany("INSERT INTO my_posts (n, post_secret, url, kind, created, deleted) VALUES (?, ?, ?, ?, ?, ?)",
-                             posts)
+        store.db.executemany("INSERT INTO my_posts (n, post_secret, url, kind, created, deleted) "
+                             "VALUES (?, ?, ?, ?, ?, ?)", posts)
         report["posts"] = len(posts)
         store.put("contacts", mine)
         store.put("contact_seq", seen)

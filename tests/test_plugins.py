@@ -6,12 +6,11 @@ import os
 from pathlib import Path
 
 import pytest
+from harness import Env
+from plugkit import go, has, new_engine, package, settle, shutdown, start_all, stored
 
 from veil import plugins
 from veil.ui import bot as uibot
-
-from harness import Env
-from plugkit import go, has, new_engine, package, settle, shutdown, start_all, stored
 
 SPY = """
 from veil import plugins

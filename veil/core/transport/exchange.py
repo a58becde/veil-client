@@ -37,7 +37,7 @@ class ServerError(Exception):
         self.accepted = accepted
 
 
-class NoReply(Exception):
+class NoReplyError(Exception):
     pass
 
 
@@ -196,7 +196,7 @@ class Exchange:
                 continue
             raise ServerError(err.get("code", "E_INTERNAL"), err.get("overflow", 0), err.get("retry_after", 0),
                               accepted=accepted)
-        raise NoReply(op)
+        raise NoReplyError(op)
 
     async def _send(self, env: dict, text: str, reply_to: int | None, to: int | None = None) -> dict:
         """Конверт текстом, а не помещающийся в 3000 байт — документом ответом на контент (spec/04)."""

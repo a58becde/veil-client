@@ -6,11 +6,10 @@ import json
 import re
 
 import pytest
+from plugkit import bot, package, settle, shutdown, start_all, stored, texts
 
 from veil import plugins
 from veil.ui import bot as uibot
-
-from plugkit import bot, package, settle, shutdown, start_all, stored, texts
 
 CODE = """
     from veil import plugins

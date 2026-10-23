@@ -166,7 +166,8 @@ class Host:
                 self.send({"t": "done", "id": rid, "ok": False, "error": str(body.get("error", "сбой"))[:300],
                            "log": log})
         except (wasmtime.Trap, wasmtime.WasmtimeError) as e:
-            why = "время вышло" if time.monotonic() >= deadline - TICK * 5 else f"движок: {str(e).splitlines()[0][:200]}"
+            timed_out = time.monotonic() >= deadline - TICK * 5
+            why = "время вышло" if timed_out else f"движок: {str(e).splitlines()[0][:200]}"
             self.send({"t": "done", "id": rid, "ok": False, "error": why})
         except Exception as e:  # noqa: BLE001 — сбой одного события не роняет хост
             self.send({"t": "done", "id": rid, "ok": False, "error": f"хост: {type(e).__name__}"})

@@ -57,10 +57,11 @@ def _ui():
 def test_status_never_hangs():
     """Любая ошибка операции превращает «Отправляю…» в объяснение (регрессия 2026-10-15)."""
     import asyncio
+
     from veil.core import api
     status = {"chat": {"id": 1}, "message_id": 5}
-    for exc, expect in [(RuntimeError("boom"), "Внутренняя ошибка"), (api.NoIdentity(), "config.toml init"),
-                        (api.DeviceRevoked(), "восстановлена"), (api.OtherBot(), "config.toml restore"),
+    for exc, expect in [(RuntimeError("boom"), "Внутренняя ошибка"), (api.NoIdentityError(), "config.toml init"),
+                        (api.DeviceRevokedError(), "восстановлена"), (api.OtherBotError(), "config.toml restore"),
                         (ServerError("E_NICK_COOLDOWN", retry_after=90), "1 мин")]:
         ui = _ui()
 
@@ -74,6 +75,7 @@ def test_draft_without_send_when_problem():
     """Черновик, который не пройдёт, показывается без «Отправить» и с объяснением (регрессия: «сократите на 27»
     появлялось только после нажатия)."""
     import asyncio
+
     from veil.core import api
     ui = _ui()
     ui.bot.sent_markups = []
@@ -132,10 +134,11 @@ def test_texts_format_is_safe():
 
 def test_locale_has_no_orphans_and_no_gaps():
     """Каждый ключ локали, который упоминает код, есть в ru.toml, и каждый текст ru.toml кому-то нужен: осиротевшие
-    тексты (например, после удаления режима или функции) не копятся. Семейства с ключом из переменной: commands.<команда>,
-    perm.<разрешение>, error.<код протокола>."""
+    тексты (например, после удаления режима или функции) не копятся. Семейства с ключом из переменной:
+    commands.<команда>, perm.<разрешение>, error.<код протокола>."""
     import ast
     import tomllib
+
     from veil import plugin_manifest as pm
     from veil.core.protocol.errors import __dict__ as errs
     data = tomllib.loads((ROOT / "locales" / "ru.toml").read_text("utf-8"))

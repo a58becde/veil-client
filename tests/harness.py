@@ -82,7 +82,8 @@ class FakeTelegram:
             self.mid += len(p["message_ids"])
         elif method == "sendMediaGroup":
             media = p["media"] if isinstance(p.get("media"), list) else json.loads(p["media"])
-            result = [self._msg({"chat_id": p.get("chat_id")}) | {"photo": [{"file_id": f"f{i}", "file_unique_id": f"u{i}"}]}
+            result = [self._msg({"chat_id": p.get("chat_id")})
+                      | {"photo": [{"file_id": f"f{i}", "file_unique_id": f"u{i}"}]}
                       for i, _ in enumerate(media)]
         elif method == "getFile":
             fid = p["file_id"]
@@ -211,7 +212,8 @@ class Env:
         if identity:
             self.store.save_device(keys.issue_device(SigningKey.generate()))
         self.core = api.Core(self.bot, self.store, self.server, KEYS_DOC, owner)
-        cfg = {"telegram": {"owner_id": owner}, "server": {"issuer_bot": "@issuer_bot", "server_sig": KEYS_DOC["server_sig"]},
+        cfg = {"telegram": {"owner_id": owner},
+               "server": {"issuer_bot": "@issuer_bot", "server_sig": KEYS_DOC["server_sig"]},
                "privacy": {"random_delay_seconds": list(delay)}, "ui": {}, "_config_name": "config.toml"}
         if pool is not None:
             cfg["pool"] = pool
@@ -229,7 +231,8 @@ class Env:
         return {"update_id": self.mid, "message": m}
 
     def forwarded_post(self, n: int, nick: str = "Роза·tagtag", text: str = "текст") -> dict:
-        """Пост из группы, пересланный владельцем: шапка как у сервера — «ник·метка» жирным во всю строку, затем «№N»."""
+        """Пост из группы, пересланный владельцем: шапка как у сервера — «ник·метка» жирным во всю строку,
+        затем «№N»."""
         return self.msg(f"{nick}\n№{n}\n\n{text}", forward_origin={"type": "hidden_user"},
                         entities=[{"type": "bold", "offset": 0, "length": len(nick.encode("utf-16-le")) // 2}])
 
@@ -265,7 +268,8 @@ class Env:
             if isinstance(mk, str):
                 mk = json.loads(mk)
             if mk:
-                return [b["callback_data"] for row in mk.get("inline_keyboard", []) for b in row if "callback_data" in b]
+                return [b["callback_data"] for row in mk.get("inline_keyboard", []) for b in row
+                        if "callback_data" in b]
         return []
 
     def draft_id(self) -> int:

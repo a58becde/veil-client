@@ -65,7 +65,7 @@ def test_transfer_rejects_foreign_issuer_and_old_days(tmp_path):
 
 def test_issuer_answer_for_other_bot_is_explained(tmp_path):
     b = core(tmp_path, "b")
-    with pytest.raises(api.UnknownTokenRequest):
+    with pytest.raises(api.UnknownTokenRequestError):
         b.accept_token_part("VEILRES 0123456789abcdef 1/2 AAAA")
 
 

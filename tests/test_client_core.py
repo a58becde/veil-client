@@ -32,8 +32,10 @@ def bold_head(nick_line: str) -> list[dict]:
 
 
 def test_post_number_only_in_header_lines():
-    assert api.post_number({"text": "Вася·7f3a9c\n№246  >>> №245\n\nтекст", "entities": bold_head("Вася·7f3a9c")}) == 246
-    assert api.post_number({"caption": "Аня 😀·k2m9xq\n№8\n\nфото", "caption_entities": bold_head("Аня 😀·k2m9xq")}) == 8
+    assert api.post_number(
+        {"text": "Вася·7f3a9c\n№246  >>> №245\n\nтекст", "entities": bold_head("Вася·7f3a9c")}) == 246
+    assert api.post_number(
+        {"caption": "Аня 😀·k2m9xq\n№8\n\nфото", "caption_entities": bold_head("Аня 😀·k2m9xq")}) == 8
     assert api.post_number({"caption": "№7\n\nфото"}) == 7
     assert api.post_number({"text": "№12  >>> №11"}) == 12
     assert api.post_number({"text": "a\nb\nв тексте №5"}) is None
@@ -93,11 +95,11 @@ def test_lookup_chain_rejects_forgeries():
         dict(m, seq=d.seq + 1),
     ]
     for f in forged:
-        with pytest.raises(keys.KeyMismatch):
+        with pytest.raises(keys.KeyMismatchError):
             keys.verify_lookup_match(f, "abcdef", now=now, tag_fn=lambda pk: "abcdef")
-    with pytest.raises(keys.KeyMismatch):  # просрочен
+    with pytest.raises(keys.KeyMismatchError):  # просрочен
         keys.verify_lookup_match(m, "abcdef", now=d.current.exp, tag_fn=lambda pk: "abcdef")
-    with pytest.raises(keys.KeyMismatch):  # чужая метка
+    with pytest.raises(keys.KeyMismatchError):  # чужая метка
         keys.verify_lookup_match(m, "zzzz", now=now, tag_fn=lambda pk: "abcdef")
 
 

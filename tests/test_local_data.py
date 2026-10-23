@@ -35,6 +35,7 @@ def test_forgotten_post_secret_not_on_disk(tmp_path, sealed):
 def test_daily_loop_forgets_old_posts(tmp_path, monkeypatch):
     """Бот, который месяцами не перезапускался, тоже забывает старые «мой пост ↔ секрет» (раз в сутки)."""
     from harness import Env
+
     from veil.ui import bot as uibot
     e = Env(tmp_path)
     e.store.add_post(5, SECRET, "u", "text")

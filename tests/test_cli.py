@@ -1,4 +1,5 @@
-"""Личность создаётся и восстанавливается только в консоли; 12 слов не хранятся и не проходят через Telegram (spec/02)."""
+"""Личность создаётся и восстанавливается только в консоли; 12 слов не хранятся и не проходят через Telegram
+(spec/02)."""
 import io
 import json
 import re
@@ -34,7 +35,8 @@ def test_init_batch_shows_words_once_and_stores_none(tmp_path, monkeypatch):
     words = [w for _, w in sorted((int(n), w) for n, w in re.findall(r"(\d+)\. ([a-z]+)", out))]  # три колонки
     assert len(words) == 12 and bip39.validate(" ".join(words))
     saved = (tmp_path / "device.json").read_text()
-    assert " ".join(words[:3]) not in saved and "mnemonic" not in saved  # слов на диске нет (base64 со словами не путаем)
+    # слов на диске нет (base64 со словами не путаем)
+    assert " ".join(words[:3]) not in saved and "mnemonic" not in saved
     assert set(json.loads(saved)) == {"v", "id_pk", "tag", "dev_sk", "seq", "dev_sig", "enc"}
     assert d.id_pk == bytes(keys.root_from_seed(bip39.to_seed(" ".join(words))).verify_key)
     with pytest.raises(SystemExit):  # повторный init без --force не затирает личность

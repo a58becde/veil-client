@@ -10,13 +10,13 @@ import zipfile
 from pathlib import Path
 
 import pytest
-
-from veil import market, market_tool as tool, plugins
-from veil.ui import bot as uibot
-from veil.ui.market_ui import MarketUI
-
 from harness import Env
 from plugkit import new_engine, shutdown
+
+from veil import market, plugins
+from veil import market_tool as tool
+from veil.ui import bot as uibot
+from veil.ui.market_ui import MarketUI
 
 
 class Store(dict):
@@ -54,7 +54,8 @@ class Catalog:
         fields = {"id": id_, "name": "Привет", "version": version, "api": 1, "entry": "main",
                   "description": "Здоровается", "author": "Автор", "license": "MIT",
                   "permissions": list(permissions), "author_pk": pk, **extra}
-        (d / "plugin.toml").write_text("".join(f"{k} = {json.dumps(v, ensure_ascii=False)}\n" for k, v in fields.items()))
+        (d / "plugin.toml").write_text(
+            "".join(f"{k} = {json.dumps(v, ensure_ascii=False)}\n" for k, v in fields.items()))
         (d / "main.py").write_text(textwrap.dedent(code or """
             from veil import plugins
             @plugins.on_command("hello", "Поздороваться")
@@ -320,7 +321,8 @@ def test_delisted_plugin_still_removable(tmp_path):
             await go(e, e.msg("/market"))
             assert said(e, "hello 1.0.0 — убран из каталога") and "mk:v:hello" in buttons(e)
             await go(e, e.press("mk:v:hello"))
-            assert said(e, "убран из каталога. Установленная версия продолжает работать") and buttons(e) == ["mk:r:hello"]
+            assert said(e, "убран из каталога. Установленная версия продолжает работать")
+            assert buttons(e) == ["mk:r:hello"]
             await go(e, e.press("mk:r:hello"), e.press("mk:rok:hello"))
             assert said(e, "удалён вместе с данными") and not m.installed() and not e.ui.plugins.loaded
         finally:

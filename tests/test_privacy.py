@@ -4,14 +4,16 @@ import asyncio
 from nacl.public import PrivateKey
 
 from veil.core import api, privacy
-from veil.core.protocol import b64, content as contentmod, hidden
+from veil.core.protocol import b64, hidden
+from veil.core.protocol import content as contentmod
 
 TEXT = {"message_id": 1, "text": "привет https://e.x", "entities": [{"type": "url", "offset": 7, "length": 11}]}
 PHOTO = {"message_id": 2, "photo": [{"file_id": "p1", "file_unique_id": "u1", "file_size": 1000}], "caption": "фото"}
 NOTE = {"message_id": 3, "video_note": {"file_id": "v1", "file_unique_id": "vu", "file_size": 500}}
 POLL = {"message_id": 4, "poll": {"question": "?", "type": "regular"}}
 QUIZ = {"message_id": 5, "poll": {"question": "?", "type": "quiz"}}
-ALBUM = [{"message_id": 6, "media_group_id": "g", "photo": [{"file_id": "a1", "file_unique_id": "au1", "file_size": 10}],
+ALBUM = [{"message_id": 6, "media_group_id": "g",
+          "photo": [{"file_id": "a1", "file_unique_id": "au1", "file_size": 10}],
           "caption": "смотри https://e.x", "caption_entities": [{"type": "url", "offset": 7, "length": 11}]},
          {"message_id": 7, "media_group_id": "g", "video": {"file_id": "a2", "file_unique_id": "au2", "file_size": 20}}]
 
@@ -30,7 +32,8 @@ def test_preview_problems():
     d = api.Draft(chat_id=1, messages=[{"message_id": 1, "text": "я" * 4000}, {"message_id": 2, "text": "хвост"}])
     p = privacy.preview(d, None)
     assert p.kind == "split" and p.problems[0][0] == "text.split" and p.check["body_units"] == 4005
-    d = api.Draft(chat_id=1, messages=[dict(PHOTO, photo=[{"file_id": "p", "file_unique_id": "u", "file_size": 25 << 20}])],
+    big = [{"file_id": "p", "file_unique_id": "u", "file_size": 25 << 20}]
+    d = api.Draft(chat_id=1, messages=[dict(PHOTO, photo=big)],
                   hide="to", to_label="Имя·nky1", to_pk="A" * 43)
     assert ("text.file_too_big", {}) in privacy.preview(d, None).problems
     # Скрытый текст до 4096 символов помещается: конверт больше 3000 байт уходит документом.
@@ -43,8 +46,9 @@ def test_preview_problems():
                   to_pk="A" * 43)
     assert privacy.preview(d, None).problems == []
     d = api.Draft(chat_id=1, messages=[PHOTO], hide="to", to_label="Имя·nky1", to_pk="A" * 43)
-    assert privacy.preview(d, "Имя·nky1").check == {"kind": "document", "body_units": privacy.utf16(privacy.HIDDEN_MESSAGE),
-                                                   "nick": "Имя·nky1", "hidden": {"mode": "to", "to_label": "Имя·nky1", "file": True}}
+    assert privacy.preview(d, "Имя·nky1").check == {
+        "kind": "document", "body_units": privacy.utf16(privacy.HIDDEN_MESSAGE),
+        "nick": "Имя·nky1", "hidden": {"mode": "to", "to_label": "Имя·nky1", "file": True}}
 
 
 class FakeBot:
@@ -106,5 +110,6 @@ def test_links_in_album_resend_with_new_captions():
     d = api.Draft(chat_id=1, messages=ALBUM, hide="links")
     plan = asyncio.run(privacy.build(_core(bot), d))
     asyncio.run(plan.deliver())
-    assert bot.group[0]["caption"] == "смотри " + privacy.HIDDEN_LINK and bot.group[1] == {"type": "video", "media": "a2"}
+    assert bot.group[0]["caption"] == "смотри " + privacy.HIDDEN_LINK
+    assert bot.group[1] == {"type": "video", "media": "a2"}
     assert plan.shown[0]["caption"] == "смотри " + privacy.HIDDEN_LINK

@@ -148,6 +148,7 @@ def test_ui_apply_feed_cursor_rules(tmp_path):
 
 def test_load_key_permissions(tmp_path):
     import os
+
     import pytest
     k = pool.load_key(tmp_path / "pool.key")
     assert len(k) == 32 and (tmp_path / "pool.key").stat().st_mode & 0o077 == 0
@@ -301,6 +302,7 @@ def test_migrate_single_process_pool(tmp_path):
     старые файлы затёрты; главный ключ данные бота больше не открывает."""
     import json
     import os
+
     import pytest
     from nacl.exceptions import CryptoError
     master = os.urandom(32)

@@ -282,8 +282,8 @@ def _sandbox(cfg: dict, base: Path, root: Path, group: int) -> None:
     """Landlock до обработки любых данных: процессу группы недоступны главный ключ, токен менеджера, индекс и
     другие группы (docs/POOL.md). Без Landlock группа не запускается, если pool.require_sandbox (по умолчанию да)."""
     import veil.__main__  # noqa: F401, PLC0415 — всё, что понадобится боту, загружается до песочницы
-    import veil.ui.bot  # noqa: F401, PLC0415
     import veil.core.export  # noqa: F401, PLC0415
+    import veil.ui.bot  # noqa: F401, PLC0415
     from veil import plugin_engine  # noqa: PLC0415
     app = Path(__file__).resolve().parent.parent
     files = [base / cfg["server"].get("keys_file", "keys.json")]
@@ -480,7 +480,8 @@ class Supervisor:
             if e.code in (400, 404) and "not found" in e.description.lower():
                 self.mark_gone(bot_id)
                 return
-            log.warning("pool bot %s: manager cannot fetch token (%s), group uses the stored one", bot_id, e.description)
+            log.warning("pool bot %s: manager cannot fetch token (%s), group uses the stored one",
+                        bot_id, e.description)
         # Доступ к боту не ограничивается: при is_access_restricted Telegram не пропускает и приёмного бота сервера
         # (BOT_ACCESS_RESTRICTED), а ID ботов в added_user_ids он молча отбрасывает. Посторонних бот и так не слушает.
         try:
@@ -613,7 +614,8 @@ class Supervisor:
                 lines.append(text("bot_ok", bot=name))
             else:
                 lines.append(text("bot_stopped", bot=name))
-        await self.mgr.send(uid, "\n".join(lines) or text("welcome"), markup={"inline_keyboard": rows} if rows else None)
+        await self.mgr.send(uid, "\n".join(lines) or text("welcome"),
+                            markup={"inline_keyboard": rows} if rows else None)
 
     def status(self) -> dict:
         bots = self.bots()
@@ -643,7 +645,8 @@ class Supervisor:
     async def run(self) -> None:
         self.me = await self.mgr.get_me()
         if not self.me.get("can_manage_bots"):
-            raise SystemExit(f"@{self.me.get('username')}: в @BotFather (мини-приложение) не включён Bot Management Mode")
+            raise SystemExit(f"@{self.me.get('username')}: "
+                             "в @BotFather (мини-приложение) не включён Bot Management Mode")
         self.migrate_single()
         groups = sorted({v["group"] for v in self.bots().values() if "group" in v and not v.get("gone_since")})
         log.info("pool manager @%s, bots: %d, groups: %d", self.me["username"], len(self.bots()), len(groups))
@@ -682,7 +685,8 @@ POOL_TEXTS = {
     "bot_stopped": "@{bot} — не запущен (перезапуск через несколько минут).",
     "button_check": "Проверить связь",
     "check_ok": "@{bot}: связь с сервером есть. Откройте бота и нажмите «Старт».",
-    "check_fail": "@{bot}: связи пока нет — bot-to-bot в @BotFather не включён или ещё не применился. Попробуйте через минуту.",
+    "check_fail": ("@{bot}: связи пока нет — bot-to-bot в @BotFather не включён или ещё не применился. "
+                   "Попробуйте через минуту."),
     "button_create": "Создать моего бота",
     "created": ("Готово: @{bot} создан и работает в пуле.\n\nОсталось одно действие в Telegram: откройте @BotFather → "
                 "/mybots → @{bot} → Bot Settings → Bot-to-Bot Communication → включить. Без этого бот не может писать "
@@ -691,7 +695,8 @@ POOL_TEXTS = {
               "3 в сутки. Удалите лишнего бота в @BotFather → /mybots."),
     "left": ("Бот отключён от пула, его данные на сервере пула стёрты. Если вы перенесли его к себе — запускайте. "
              "Токен бота: @BotFather → /mybots → бот → API Token."),
-    "owner_changed": ("Бот передан вам, но данные прежнего владельца (личность, токены, посты) не передаются: они стёрты, "
+    "owner_changed": ("Бот передан вам, но данные прежнего владельца (личность, токены, посты) не передаются: "
+                      "они стёрты, "
                       "бот в пуле остановлен."),
 }
 

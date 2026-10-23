@@ -31,7 +31,8 @@ from pathlib import Path
 
 from nacl.signing import SigningKey
 
-from veil import market, plugin_manifest as pm
+from veil import market
+from veil import plugin_manifest as pm
 from veil.core.protocol import b64
 
 KEY_PREFIX = "VEILKEY1 "

@@ -1,9 +1,9 @@
 """/market в боте (docs/MARKET.md, «Каталог»): список плагинов каталога, карточка, установка, обновление, удаление.
 
 Всё скачивается и проверяется в veil.market; здесь — кнопки и тексты. Установка: скачать и проверить пакет → показать
-разрешения → «Разрешить» → поставить и запустить в движке плагинов. Платный плагин: «Купить» → запрос VEILLIC для бота-магазина
-→ владелец платит Stars и пересылает ответ VEILLICRES сюда → бот проверяет лицензию, активирует её на сервере анонимно
-и продолжает установку. Обновление с теми же разрешениями того же автора ставится
+разрешения → «Разрешить» → поставить и запустить в движке плагинов. Платный плагин: «Купить» → запрос VEILLIC для
+бота-магазина → владелец платит Stars и пересылает ответ VEILLICRES сюда → бот проверяет лицензию, активирует её
+на сервере анонимно и продолжает установку. Обновление с теми же разрешениями того же автора ставится
 по кнопке «Обновить» без повторного вопроса; просит больше — снова согласие. Раз в сутки бот проверяет каталог: сборку,
 которую каталог отозвал, останавливает и удаляет, о новых версиях сообщает (ставит — только по кнопке).
 """
@@ -15,9 +15,11 @@ from typing import TYPE_CHECKING
 
 from nacl.signing import SigningKey
 
-from veil import market as mk, plugin_manifest as pm, plugins as plug
+from veil import market as mk
+from veil import plugin_manifest as pm
+from veil import plugins as plug
 from veil.core.protocol import b64
-from veil.core.transport.exchange import NoReply, ServerError
+from veil.core.transport.exchange import NoReplyError, ServerError
 from veil.core.transport.telegram import keyboard
 
 if TYPE_CHECKING:
@@ -33,7 +35,7 @@ class MarketUI:
         self.staged: dict[str, tuple] = {}  # id → (каталог пакета, манифест, запись индекса), ждут «Разрешить»
 
     @property
-    def T(self):
+    def tr(self):
         return self.ui.T
 
     async def _say(self, text: str, markup: dict | None = None):
@@ -48,7 +50,7 @@ class MarketUI:
 
     def _unavailable(self) -> str | None:
         if self.market is None:
-            return self.T("text.market_off")
+            return self.tr("text.market_off")
         return None
 
     # --- список и карточка ---
@@ -59,23 +61,23 @@ class MarketUI:
         try:
             idx = await self.market.refresh(force=msg is None)
         except mk.MarketError as e:
-            await self._say(self.T("text.market_error", err=e))
+            await self._say(self.tr("text.market_error", err=e))
             return
         installed = self.market.installed()
         # Установленные, но убранные из каталога — в конце списка: иначе их не удалить кнопкой.
         items: list = sorted(idx.plugins.values(), key=lambda e: e.name.lower()) + \
             sorted(set(installed) - set(idx.plugins))
         if not items:
-            await self._say(self.T("text.market_empty"))
+            await self._say(self.tr("text.market_empty"))
             return
         pages = (len(items) + PAGE - 1) // PAGE
         page = max(0, min(page, pages - 1))
         chunk = items[page * PAGE:(page + 1) * PAGE]
         lines = [self._line(e, installed.get(e.id)) if isinstance(e, mk.Entry) else
-                 self.T("text.market_delisted_line", name=e, version=installed[e]["version"]) for e in chunk]
-        text = self.T("text.market_list", lines="\n".join(lines), page=page + 1, pages=pages)
+                 self.tr("text.market_delisted_line", name=e, version=installed[e]["version"]) for e in chunk]
+        text = self.tr("text.market_list", lines="\n".join(lines), page=page + 1, pages=pages)
         if self.market.stale():
-            text += "\n\n" + self.T("text.market_stale", date=idx.generated)
+            text += "\n\n" + self.tr("text.market_stale", date=idx.generated)
         rows = [[(e.name[:40], f"mk:v:{e.id}")] if isinstance(e, mk.Entry) else [(e[:40], f"mk:v:{e}")]
                 for e in chunk]
         nav = ([(f"← {page}", f"mk:p:{page - 1}")] if page else []) + \
@@ -89,11 +91,12 @@ class MarketUI:
             await self._say(text, markup)
 
     def _line(self, e: mk.Entry, inst: dict | None) -> str:
-        price = self.T("text.market_price", n=e.price_stars) if e.price_stars else self.T("text.market_free")
+        price = self.tr("text.market_price", n=e.price_stars) if e.price_stars else self.tr("text.market_free")
         state = ""
         if inst:
             newer = mk.version_key(e.version) > mk.version_key(inst["version"])
-            state = " · " + (self.T("text.market_has_update", v=e.version) if newer else self.T("text.market_installed"))
+            state = " · " + (self.tr("text.market_has_update", v=e.version) if newer
+                             else self.tr("text.market_installed"))
         desc = e.description if len(e.description) <= 90 else e.description[:89] + "…"
         return f"• {e.name} {e.version} — {desc} ({price}{state})"
 
@@ -102,31 +105,31 @@ class MarketUI:
         e = idx.plugins.get(id_) if idx else None
         inst = self.market.installed().get(id_)
         if e is None and inst:
-            await self._edit(msg, self.T("text.market_delisted_card", name=id_, version=inst["version"]),
-                             keyboard([[(self.T("button.market_remove"), f"mk:r:{id_}")]]))
+            await self._edit(msg, self.tr("text.market_delisted_card", name=id_, version=inst["version"]),
+                             keyboard([[(self.tr("button.market_remove"), f"mk:r:{id_}")]]))
             return
         if e is None:
-            await self._edit(msg, self.T("text.market_gone"))
+            await self._edit(msg, self.tr("text.market_gone"))
             return
         m = pm.from_fields({**e.manifest_fields(), "api": pm.API, "entry": "main"})
-        text = self.T("text.market_card", name=e.name, version=e.version, author=e.author, license=e.license,
+        text = self.tr("text.market_card", name=e.name, version=e.version, author=e.author, license=e.license,
                       description=e.description, reviewed=e.reviewed, size=max(1, e.size // 1024),
                       sha=e.sha256[:12])
         text += "\n\n" + self.ui.grant_text(m)
         licensed = id_ in self.market.licenses()
         if e.price_stars:
-            text += "\n\n" + self.T("text.market_paid", n=e.price_stars) + " " + \
-                (self.T("text.market_licensed") if licensed else self.T("text.market_paid_how"))
+            text += "\n\n" + self.tr("text.market_paid", n=e.price_stars) + " " + \
+                (self.tr("text.market_licensed") if licensed else self.tr("text.market_paid_how"))
         rows = []
         if inst:
             if mk.version_key(e.version) > mk.version_key(inst["version"]):
-                rows.append([(self.T("button.market_update", v=e.version), f"mk:u:{id_}")])
-            rows.append([(self.T("button.market_remove"), f"mk:r:{id_}")])
+                rows.append([(self.tr("button.market_update", v=e.version), f"mk:u:{id_}")])
+            rows.append([(self.tr("button.market_remove"), f"mk:r:{id_}")])
         elif not e.price_stars or licensed:
-            rows.append([(self.T("button.market_install"), f"mk:i:{id_}")])
+            rows.append([(self.tr("button.market_install"), f"mk:i:{id_}")])
         elif self.market.index.shop:
-            rows.append([(self.T("button.market_buy", n=e.price_stars), f"mk:b:{id_}")])
-        rows.append([(self.T("button.market_back"), "mk:p:0")])
+            rows.append([(self.tr("button.market_buy", n=e.price_stars), f"mk:b:{id_}")])
+        rows.append([(self.tr("button.market_back"), "mk:p:0")])
         await self._edit(msg, text, keyboard(rows))
 
     # --- установка и обновление ---
@@ -135,22 +138,23 @@ class MarketUI:
         idx = self.market.index
         e = idx.plugins.get(id_) if idx else None
         if e is None:
-            await self._edit(msg, self.T("text.market_gone"))
+            await self._edit(msg, self.tr("text.market_gone"))
             return
-        await self._edit(msg, self.T("text.market_checking", name=e.name))
+        await self._edit(msg, self.tr("text.market_checking", name=e.name))
         try:
             key = await self._license_key(e) if e.encrypted else None
             pdir, m = await self.market.fetch_package(e, key)
         except mk.MarketError as err:
-            await self._edit(msg, self.T("text.market_install_failed", name=e.name, err=err))
+            await self._edit(msg, self.tr("text.market_install_failed", name=e.name, err=err))
             return
         grant = (self.ui.core.store.get("plugin_grants") or {}).get(id_)
         if id_ in self.market.installed() and m.covered_by(grant):
             await self._install(pdir, m, e, msg)
             return
         self.staged[id_] = (pdir, m, e)
-        await self._edit(msg, self.ui.grant_text(m), keyboard([[(self.T("button.plugin_allow"), f"mk:ok:{id_}:{e.sha256[:12]}"),
-                                                                 (self.T("button.plugin_deny"), f"mk:no:{id_}")]]))
+        allow = (self.tr("button.plugin_allow"), f"mk:ok:{id_}:{e.sha256[:12]}")
+        deny = (self.tr("button.plugin_deny"), f"mk:no:{id_}")
+        await self._edit(msg, self.ui.grant_text(m), keyboard([[allow, deny]]))
 
     # --- покупка ---
     async def buy(self, id_: str, msg: dict) -> None:
@@ -158,14 +162,14 @@ class MarketUI:
         idx = self.market.index
         e = idx.plugins.get(id_) if idx else None
         if e is None or not e.price_stars:
-            await self._edit(msg, self.T("text.market_gone"))
+            await self._edit(msg, self.tr("text.market_gone"))
             return
         try:
             req = self.market.start_purchase(e)
         except mk.MarketError as err:
-            await self._edit(msg, self.T("text.market_install_failed", name=e.name, err=err))
+            await self._edit(msg, self.tr("text.market_install_failed", name=e.name, err=err))
             return
-        await self._edit(msg, self.T("text.market_buy_how", name=e.name, n=e.price_stars, bot=idx.shop.bot))
+        await self._edit(msg, self.tr("text.market_buy_how", name=e.name, n=e.price_stars, bot=idx.shop.bot))
         await self._say(req)  # отдельным сообщением — переслать или скопировать целиком
 
     async def license_response(self, text: str) -> None:
@@ -176,14 +180,14 @@ class MarketUI:
         try:
             plugin = self.market.accept_license(text)
         except mk.MarketError as err:
-            await self._say(self.T("text.market_license_bad", err=err))
+            await self._say(self.tr("text.market_license_bad", err=err))
             return
-        await self._say(self.T("text.market_license_ok", name=self._name(plugin)))
+        await self._say(self.tr("text.market_license_ok", name=self._name(plugin)))
         try:
             if self.market.index is None:
                 await self.market.refresh()
         except mk.MarketError as err:
-            await self._say(self.T("text.market_error", err=err))
+            await self._say(self.tr("text.market_error", err=err))
             return
         await self.fetch(plugin, None)
 
@@ -197,14 +201,14 @@ class MarketUI:
         except ServerError as err:
             known = {"E_TOKEN_SPENT": "text.market_license_spent", "E_TOKEN_INVALID": "text.market_license_rejected",
                      "E_UNSUPPORTED": "text.market_server_off", "E_NOT_FOUND": "text.market_no_version_key"}
-            raise mk.MarketError(self.T(known[err.code]) if err.code in known else self.ui.explain(err)) from None
-        except NoReply:
-            raise mk.MarketError(self.T("text.no_reply")) from None
+            raise mk.MarketError(self.tr(known[err.code]) if err.code in known else self.ui.explain(err)) from None
+        except NoReplyError:
+            raise mk.MarketError(self.tr("text.no_reply")) from None
 
     async def confirm(self, id_: str, sha12: str, msg: dict) -> None:
         staged = self.staged.pop(id_, None)
         if staged is None or staged[2].sha256[:12] != sha12:  # кнопка от другой, уже не актуальной сборки
-            await self._edit(msg, self.T("text.market_gone"))
+            await self._edit(msg, self.tr("text.market_gone"))
             return
         await self._install(*staged, msg)
 
@@ -212,7 +216,7 @@ class MarketUI:
         staged = self.staged.pop(id_, None)
         if staged:
             shutil.rmtree(staged[0], ignore_errors=True)
-        await self._edit(msg, self.T("text.cancelled"))
+        await self._edit(msg, self.tr("text.cancelled"))
 
     async def _install(self, pdir, m, e: mk.Entry, msg: dict) -> None:
         reg = self.ui.plugins
@@ -224,22 +228,22 @@ class MarketUI:
         try:
             p = plug.load_package(self.market.plugins_dir, e.id)
         except plug.PluginError as err:
-            await self._edit(msg, self.T("text.market_install_failed", name=e.name, err=err))
+            await self._edit(msg, self.tr("text.market_install_failed", name=e.name, err=err))
             return
         reg.packages.append(p)
         if await reg.start_package(p):
             self.ui.core.store.put("plugins_seen", plug.changes(reg, None)[0] or None)
-            await self._edit(msg, self.T("text.market_done", name=e.name, version=e.version))
+            await self._edit(msg, self.tr("text.market_done", name=e.name, version=e.version))
             await self.ui._set_menu()
         else:
-            await self._edit(msg, self.T("text.plugin_not_loaded", name=e.id, err=reg.failed[-1][1]))
+            await self._edit(msg, self.tr("text.plugin_not_loaded", name=e.id, err=reg.failed[-1][1]))
 
     # --- удаление ---
     async def ask_remove(self, id_: str, msg: dict) -> None:
         name = self._name(id_)
-        await self._edit(msg, self.T("text.market_remove_ask", name=name),
-                         keyboard([[(self.T("button.market_remove_yes"), f"mk:rok:{id_}"),
-                                    (self.T("button.cancel"), "mk:p:0")]]))
+        await self._edit(msg, self.tr("text.market_remove_ask", name=name),
+                         keyboard([[(self.tr("button.market_remove_yes"), f"mk:rok:{id_}"),
+                                    (self.tr("button.cancel"), "mk:p:0")]]))
 
     async def remove(self, id_: str, msg: dict | None = None, reason: str = "") -> None:
         """Удалить плагин маркета: обработчики, файлы, хранилище плагина и согласие."""
@@ -252,8 +256,8 @@ class MarketUI:
         self.ui.core.store.put("plugin_grants", grants or None)
         self.ui.core.store.put("plugins_seen", plug.changes(self.ui.plugins, None)[0] or None)
         await self.ui._set_menu()
-        text = self.T("text.market_revoked", name=name, reason=reason) if reason else \
-            self.T("text.market_removed", name=name)
+        text = self.tr("text.market_revoked", name=name, reason=reason) if reason else \
+            self.tr("text.market_removed", name=name)
         if msg:
             await self._edit(msg, text)
         else:
@@ -305,5 +309,5 @@ class MarketUI:
         for e in self.market.updates():
             if told.get(e.id) != e.version:
                 told[e.id] = e.version
-                await self._say(self.T("text.market_update_available", name=e.name, version=e.version))
+                await self._say(self.tr("text.market_update_available", name=e.name, version=e.version))
         self.ui.core.store.put("market_told", told or None)

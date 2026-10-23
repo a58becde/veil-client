@@ -83,7 +83,8 @@ def test_upload_group():
     def h(req):
         seen["body"] = req.content.decode("utf-8", "replace")
         return ok([{"message_id": 1}, {"message_id": 2}])
-    r = run(bot_with(h).upload_group(1, [("photo", "a.jpg", b"1", "image/jpeg"), ("photo", "b.jpg", b"2", "image/jpeg")],
+    r = run(bot_with(h).upload_group(1, [("photo", "a.jpg", b"1", "image/jpeg"),
+                                         ("photo", "b.jpg", b"2", "image/jpeg")],
                                      caption="подпись", caption_entities=[{"type": "bold", "offset": 0, "length": 2}]))
     media = json.loads(seen["body"].split('name="media"\r\n\r\n', 1)[1].split("\r\n--", 1)[0])
     assert len(r) == 2 and media[0]["media"] == "attach://f0" and media[0]["caption"] == "подпись"

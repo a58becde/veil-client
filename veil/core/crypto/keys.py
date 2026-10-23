@@ -62,7 +62,8 @@ def post_signing_key(post_secret: bytes) -> SigningKey:
 
 
 def tag(id_pk: bytes) -> str:
-    """TAG_CHARS символов Crockford Base32: старшие 5·TAG_CHARS бит Argon2id(id_pk, "veil/v1/tag/a2id", t=3, m=64 МиБ, p=1)."""
+    """TAG_CHARS символов Crockford Base32: старшие 5·TAG_CHARS бит
+    Argon2id(id_pk, "veil/v1/tag/a2id", t=3, m=64 МиБ, p=1)."""
     h = pwhash.argon2id.kdf(32, id_pk, TAG_SALT, opslimit=TAG_OPS, memlimit=TAG_MEM)
     bits = int.from_bytes(h[:4], "big") >> (32 - 5 * TAG_CHARS)
     return "".join(CROCKFORD[(bits >> (5 * i)) & 31] for i in range(TAG_CHARS - 1, -1, -1))
@@ -98,7 +99,8 @@ class EncKey:
     created: int
 
     def to_json(self) -> dict:
-        return {"sk": _b64(self.sk), "pk": _b64(self.pk), "exp": self.exp, "sig": _b64(self.sig), "created": self.created}
+        return {"sk": _b64(self.sk), "pk": _b64(self.pk), "exp": self.exp, "sig": _b64(self.sig),
+                "created": self.created}
 
     @classmethod
     def from_json(cls, d: dict) -> "EncKey":
@@ -179,7 +181,7 @@ def issue_device(root: SigningKey, now: int | None = None, tag_fn=tag) -> Device
     return d
 
 
-class KeyMismatch(ValueError):
+class KeyMismatchError(ValueError):
     pass
 
 
@@ -197,16 +199,17 @@ def verify_lookup_match(match: dict, expected_tag: str, now: int | None = None, 
     устройства и не просрочен, метка выведена из id_pk. Закрепление (TOFU) и seq проверяет вызывающий."""
     now = int(time.time()) if now is None else now
     try:
-        id_pk, dev_pk, dev_sig, enc_pk, enc_sig = (_unb64(match[k]) for k in ("id_pk", "dev_pk", "dev_sig", "enc_pk", "enc_sig"))
+        id_pk, dev_pk, dev_sig, enc_pk, enc_sig = (_unb64(match[k])
+                                                   for k in ("id_pk", "dev_pk", "dev_sig", "enc_pk", "enc_sig"))
         seq, exp = int(match["seq"]), int(match["enc_exp"])
         if len(id_pk) != 32 or len(dev_pk) != 32 or len(enc_pk) != 32 or seq <= 0:
             raise ValueError("size")
         VerifyKey(id_pk).verify(device_message(id_pk, dev_pk, seq), dev_sig)
         VerifyKey(dev_pk).verify(enc_message(id_pk, enc_pk, exp), enc_sig)
     except (KeyError, ValueError, TypeError, BadSignatureError) as e:
-        raise KeyMismatch("подпись ключей получателя неверна") from e
+        raise KeyMismatchError("подпись ключей получателя неверна") from e
     if exp <= now:
-        raise KeyMismatch("ключ шифрования получателя просрочен")
+        raise KeyMismatchError("ключ шифрования получателя просрочен")
     if tag_fn(id_pk) != expected_tag:
-        raise KeyMismatch("метка не совпадает с ключом личности")
+        raise KeyMismatchError("метка не совпадает с ключом личности")
     return Verified(id_pk, enc_pk, seq, str(match.get("nick") or ""))

@@ -3,9 +3,9 @@
 import asyncio
 import time
 
-from veil import plugins, pool, sandbox
-
 from plugkit import bot, new_engine, package, settle, shutdown, start_all, texts
+
+from veil import plugins, pool, sandbox
 
 
 def test_group_engine_from_config(tmp_path):

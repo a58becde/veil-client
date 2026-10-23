@@ -15,24 +15,30 @@ import time
 import tomllib
 from pathlib import Path
 
-from veil import plugin_engine, plugin_manifest as pm, plugins as plug
-from veil.core import api, export as ex, privacy
-from veil.core.crypto.keys import KeyMismatch, display_name
+from veil import plugin_engine
+from veil import plugin_manifest as pm
+from veil import plugins as plug
+from veil.core import api, privacy
+from veil.core import export as ex
+from veil.core.crypto.keys import KeyMismatchError, display_name
 from veil.core.identity.nick import NickError
 from veil.core.protocol import b64
-from veil.core.transport.exchange import NoReply, ServerError
+from veil.core.transport.exchange import NoReplyError, ServerError
 from veil.core.transport.telegram import Bot, TelegramError, keyboard, safe_filename, safe_mime
 from veil.core.wallet.issue import IssueFormatError
 from veil.ui.market_ui import MarketUI
 
 log = logging.getLogger("veil.ui")
 _PLACEHOLDER = re.compile(r"\{([a-z_]+)\}")
-MEDIA_SEND = {"photo": ("sendPhoto", "photo"), "video": ("sendVideo", "video"), "animation": ("sendAnimation", "animation"),
-              "document": ("sendDocument", "document"), "audio": ("sendAudio", "audio"), "voice": ("sendVoice", "voice"),
+MEDIA_SEND = {"photo": ("sendPhoto", "photo"), "video": ("sendVideo", "video"),
+              "animation": ("sendAnimation", "animation"),
+              "document": ("sendDocument", "document"), "audio": ("sendAudio", "audio"),
+              "voice": ("sendVoice", "voice"),
               "video_note": ("sendVideoNote", "video_note"), "sticker": ("sendSticker", "sticker")}
 # MIME по умолчанию для вида, если присланный не подошёл (файлы «лично для» присылает другой человек).
 MEDIA_MIME = {"photo": "image/jpeg", "video": "video/mp4", "animation": "video/mp4", "audio": "audio/mpeg",
-              "voice": "audio/ogg", "video_note": "video/mp4", "sticker": "image/webp", "document": "application/octet-stream"}
+              "voice": "audio/ogg", "video_note": "video/mp4", "sticker": "image/webp",
+              "document": "application/octet-stream"}
 ALBUM_WAIT = 1.5  # секунд тишины после последнего элемента альбома
 SPLIT_WAIT = 2.0  # секунд тишины после части длинного текста
 SPLIT_THRESHOLD = 3900  # UTF-16: текст такой длины мог быть отрезан Telegram на 4096
@@ -148,7 +154,8 @@ class PluginHost:
         if self.ui.plugin_turn.get(plugin, 0) < time.monotonic():
             raise plug.PluginError("ask: спросить можно только в ответ на действие владельца")
         msg = await self.ui._say(self.ui.plugin_text(plugin, prompt) + "\n\n" +
-                                 self.ui.T("text.plugin_ask_hint", name=self.ui.plugin_name(plugin)), self.ui._cancel_kb())
+                                 self.ui.T("text.plugin_ask_hint", name=self.ui.plugin_name(plugin)),
+                                 self.ui._cancel_kb())
         if msg:
             self.ui.core.store.put("await", {"what": "plugin", "p": plugin, "a": action, "ask": msg["message_id"],
                                              "until": int(time.time()) + PLUGIN_ASK_TTL})
@@ -221,17 +228,17 @@ class UI:
 
     def grant_text(self, m: pm.Manifest) -> str:
         """Что просит плагин — словами: чувствительное отдельно, сеть и предупреждение о связке «чтение + сеть»."""
-        T = self.T
-        lines = [T(f"perm.{p}") for p in m.permissions if p not in pm.SENSITIVE and p != "net"]
-        lines += [T(f"perm.{p}") + " ⚠️" for p in m.sensitive]
+        tr = self.T
+        lines = [tr(f"perm.{p}") for p in m.permissions if p not in pm.SENSITIVE and p != "net"]
+        lines += [tr(f"perm.{p}") + " ⚠️" for p in m.sensitive]
         if m.network:
-            lines.append(T("perm.net", hosts=", ".join(m.network)))
-        text = T("text.plugin_grant", name=m.name, id=m.id, version=m.version, author=m.author,
-                 perms="\n".join(f"• {x}" for x in lines) or T("text.plugin_grant_nothing"))
+            lines.append(tr("perm.net", hosts=", ".join(m.network)))
+        text = tr("text.plugin_grant", name=m.name, id=m.id, version=m.version, author=m.author,
+                 perms="\n".join(f"• {x}" for x in lines) or tr("text.plugin_grant_nothing"))
         if m.leaks_to_network:
-            text += "\n\n" + T("text.plugin_grant_leak")
+            text += "\n\n" + tr("text.plugin_grant_leak")
         if plugin_engine.os_sandbox():
-            text += "\n\n" + T("text.plugin_grant_wasm_only")
+            text += "\n\n" + tr("text.plugin_grant_wasm_only")
         return text
 
     async def _ask_grant(self, p: plug.Loaded) -> None:
@@ -245,7 +252,8 @@ class UI:
             await self.bot.edit(msg["chat"]["id"], msg["message_id"], self.T("text.cancelled"))
             return
         if not ok:
-            await self.bot.edit(msg["chat"]["id"], msg["message_id"], self.T("text.plugin_denied", name=p.manifest.name))
+            await self.bot.edit(msg["chat"]["id"], msg["message_id"],
+                                self.T("text.plugin_denied", name=p.manifest.name))
             return
         grants = dict(self.core.store.get("plugin_grants") or {})
         grants[name] = p.manifest.grant()
@@ -276,13 +284,13 @@ class UI:
             await self.core.sync_device()
             self.core.store.put("identity_problem", None)
             return
-        except api.NoTokens:
+        except api.NoTokensError:
             problem = "text.device_need_token"
-        except api.DeviceRevoked:
+        except api.DeviceRevokedError:
             problem = "text.device_revoked"
-        except api.OtherBot:
+        except api.OtherBotError:
             problem = "text.other_bot"
-        except (ServerError, NoReply, TelegramError) as e:
+        except (ServerError, NoReplyError, TelegramError) as e:
             log.info("identity sync: %s", e)
             return
         if self.core.store.get("identity_problem") != problem or not quiet:
@@ -540,34 +548,34 @@ class UI:
     # --- черновики ---
     def _draft_markup(self, i: int, d: api.Draft, sendable: bool = True) -> dict:
         """Кнопки черновика. Варианты скрытия — только из таблицы privacy.modes (одно место для всех видов)."""
-        T = self.T
-        rows = [[(T("button.send"), f"d:{i}:send")]] if sendable else []
+        tr = self.T
+        rows = [[(tr("button.send"), f"d:{i}:send")]] if sendable else []
         if d.mode == "create":
             if self.core.nick():  # без ника пост и так выходит без подписи
-                rows.append([(T("button.anon_on") if d.anonymous else T("button.anon_off"), f"d:{i}:anon")])
-            labels = {"links": (T("button.hide_links"), "hl"), "message": (T("button.hide_message"), "hm"),
-                      "to": (T("button.hide_to"), "hto")}
+                rows.append([(tr("button.anon_on") if d.anonymous else tr("button.anon_off"), f"d:{i}:anon")])
+            labels = {"links": (tr("button.hide_links"), "hl"), "message": (tr("button.hide_message"), "hm"),
+                      "to": (tr("button.hide_to"), "hto")}
             hide = [(labels[m][0], f"d:{i}:{labels[m][1]}") for m in privacy.modes(d.messages) if m and m != d.hide]
             if d.hide:
-                hide.append((T("button.hide_off"), f"d:{i}:h0"))
+                hide.append((tr("button.hide_off"), f"d:{i}:h0"))
             if hide:
                 rows.append(hide)
             for j, (_, _, label, _) in enumerate(self.plugins.link_buttons(draft_urls(d.messages))):
                 rows.append([(f"🧩 {label}", f"pl:{i}:{j}")])
-        rows.append([(T("button.cancel"), f"d:{i}:x")])
+        rows.append([(tr("button.cancel"), f"d:{i}:x")])
         return keyboard(rows)
 
     def _draft_text(self, d: api.Draft, problems: list[tuple[str, dict]] = ()) -> str:
-        T = self.T
-        hide = {"": T("text.hide_none"), "links": T("text.hide_links"), "message": T("text.hide_message"),
-                "to": T("text.hide_to", who=d.to_label)}[d.hide]
-        reply = T("text.draft_reply", n=d.reply_to) if d.reply_to else ""
+        tr = self.T
+        hide = {"": tr("text.hide_none"), "links": tr("text.hide_links"), "message": tr("text.hide_message"),
+                "to": tr("text.hide_to", who=d.to_label)}[d.hide]
+        reply = tr("text.draft_reply", n=d.reply_to) if d.reply_to else ""
         nick = self.core.nick()
-        sign = T("text.sign_none") if not nick else (T("text.sign_anon") if d.anonymous else nick)
-        text = T("text.draft", sign=sign, hide=hide, reply=reply)
+        sign = tr("text.sign_none") if not nick else (tr("text.sign_anon") if d.anonymous else nick)
+        text = tr("text.draft", sign=sign, hide=hide, reply=reply)
         if problems:
-            text += "\n\n" + "\n".join(T("text.draft_problem", text=T(k, **kw)) for k, kw in problems)
-            text += "\n" + T("text.draft_fix")
+            text += "\n\n" + "\n".join(tr("text.draft_problem", text=tr(k, **kw)) for k, kw in problems)
+            text += "\n" + tr("text.draft_fix")
         return text
 
     async def _show_draft(self, i: int, d: api.Draft, edit: dict | None = None) -> None:
@@ -642,13 +650,13 @@ class UI:
             log.info("operation ok")
             await report(ok_text(res))
             return None
-        except api.NoTokens:
+        except api.NoTokensError:
             await report(self.T("text.no_tokens"), keyboard([[(self.T("button.top_up"), "tok:req")]]))
             return "no_tokens"
-        except api.PostQueued:
+        except api.PostQueuedError:
             await report(self.T("text.post_queued"))
             return "queued"
-        except api.NotMine:
+        except api.NotMineError:
             await report(self.T("text.not_mine"))
             return "not_mine"
         except ServerError as e:
@@ -660,19 +668,19 @@ class UI:
                     log.info("refresh keys failed: %s", type(err).__name__)
             await report(self.explain(e))
             return e.code
-        except NoReply:
+        except NoReplyError:
             await report(self.T("text.no_reply"))
             return "no_reply"
         except NickError as e:
             await report(self.T("text.nick_invalid", err=e))
             return "nick_invalid"
-        except api.NoIdentity:
+        except api.NoIdentityError:
             await report(self.T("text.need_identity", config=self.config_name))
             return "no_identity"
-        except api.DeviceRevoked:
+        except api.DeviceRevokedError:
             await report(self.T("text.device_revoked", config=self.config_name))
             return "device_revoked"
-        except api.OtherBot:
+        except api.OtherBotError:
             await report(self.T("text.other_bot", config=self.config_name))
             return "other_bot"
         except ValueError as e:
@@ -701,16 +709,16 @@ class UI:
             await self._say(self.T("text.recipient_not_found") if e.code in ("E_NOT_FOUND", "E_NICK_INVALID")
                             else self.explain(e))
             return
-        except KeyMismatch:
+        except KeyMismatchError:
             await self._say(self.T("text.recipient_unverified"))
             return
-        except api.Ambiguous:
+        except api.AmbiguousError:
             await self._say(self.T("text.recipient_ambiguous"))
             return
         except NickError:
             await self._say(self.T("text.recipient_bad"))
             return
-        except NoReply:
+        except NoReplyError:
             await self._say(self.T("text.no_reply"))
             return
         label = display_name(match["nick"], tag)
@@ -739,15 +747,15 @@ class UI:
         await self._show_draft(i, d)
 
     async def _post_menu(self, n: int) -> None:
-        T = self.T
+        tr = self.T
         if self.core.store.post_secret(n):
-            mk = keyboard([[(T("button.upd"), f"p:{n}:append"), (T("button.fix"), f"p:{n}:replace"),
-                            (T("button.delete"), f"p:{n}:del")],
-                           [(T("button.reply"), f"p:{n}:reply"), (T("button.cancel"), f"p:{n}:none")]])
-            await self._say(T("text.post_actions_mine", n=n), mk)
+            mk = keyboard([[(tr("button.upd"), f"p:{n}:append"), (tr("button.fix"), f"p:{n}:replace"),
+                            (tr("button.delete"), f"p:{n}:del")],
+                           [(tr("button.reply"), f"p:{n}:reply"), (tr("button.cancel"), f"p:{n}:none")]])
+            await self._say(tr("text.post_actions_mine", n=n), mk)
         else:
-            await self._say(T("text.post_actions_other", n=n),
-                            keyboard([[(T("button.reply"), f"p:{n}:reply"), (T("button.cancel"), f"p:{n}:none")]]))
+            await self._say(tr("text.post_actions_other", n=n),
+                            keyboard([[(tr("button.reply"), f"p:{n}:reply"), (tr("button.cancel"), f"p:{n}:none")]]))
 
     # --- интерфейс плагинов: их сообщения с кнопками, вопросы, кнопки у ссылок, меню ---
     def plugin_name(self, plugin: str) -> str:
@@ -786,7 +794,8 @@ class UI:
             await self._say(self.T("text.plugin_gone", name=self.plugin_name(e["p"])))
 
     async def plugin_answer(self, plugin: str, action: str, text: str) -> None:
-        self.plugin_turn[plugin] = time.monotonic() + plug.COMMAND_TIMEOUT  # ответ — снова ход владельца: можно спросить ещё
+        # ответ — снова ход владельца: можно спросить ещё
+        self.plugin_turn[plugin] = time.monotonic() + plug.COMMAND_TIMEOUT
         if not await self.plugins.answer(plugin, action, text):
             await self._say(self.T("text.plugin_gone", name=self.plugin_name(plugin)))
 
@@ -912,27 +921,27 @@ class UI:
     def status_text(self) -> str:
         """Что умеет бот и что осталось сделать, чтобы публиковать: связь, токены, личность, задержка. Показывается
         на /start — владелец узнаёт всё до первой публикации, а не по очереди после каждой ошибки."""
-        T = self.T
+        tr = self.T
         tokens = self.core.store.token_counts().get(api.today(), 0)
         lo, hi = self.cfg["privacy"].get("random_delay_seconds", DEFAULT_DELAY)
-        lines = [T("text.status_b2b_off") if self.core.store.get("b2b_error") else T("text.status_b2b_ok"),
-                 T("text.status_tokens", n=tokens) if tokens else T("text.status_tokens_none")]
+        lines = [tr("text.status_b2b_off") if self.core.store.get("b2b_error") else tr("text.status_b2b_ok"),
+                 tr("text.status_tokens", n=tokens) if tokens else tr("text.status_tokens_none")]
         if self.core.has_identity():
-            lines.append(T("text.status_identity", sign=self.core.nick() or f"·{self.core.device.tag}"))
+            lines.append(tr("text.status_identity", sign=self.core.nick() or f"·{self.core.device.tag}"))
         else:
-            lines.append(T("text.status_identity_pool") if self.pool else
-                         T("text.status_identity_none", config=self.config_name))
-        lines.append(T("text.status_delay", lo=lo, hi=hi) if hi > 0 else T("text.status_no_delay"))
+            lines.append(tr("text.status_identity_pool") if self.pool else
+                         tr("text.status_identity_none", config=self.config_name))
+        lines.append(tr("text.status_delay", lo=lo, hi=hi) if hi > 0 else tr("text.status_no_delay"))
         if self.core.store.get("issuer_repin"):
-            lines.append(T("text.status_issuer_repin", config=self.config_name))
+            lines.append(tr("text.status_issuer_repin", config=self.config_name))
         if self.plugins.loaded:
-            lines.append(T("text.status_plugins", names=", ".join(p.name for p in self.plugins.loaded)))
+            lines.append(tr("text.status_plugins", names=", ".join(p.name for p in self.plugins.loaded)))
         if self.plugins.pending:
-            lines.append(T("text.status_plugins_pending", names=", ".join(p.name for p in self.plugins.pending)))
+            lines.append(tr("text.status_plugins_pending", names=", ".join(p.name for p in self.plugins.pending)))
         if self.plugins.failed:
-            lines.append(T("text.status_plugins_failed", names=", ".join(n for n, _ in self.plugins.failed)))
-        out = T("text.status", lines="\n".join(lines))
-        return out + ("\n\n" + T("text.status_pool") if self.pool else "")
+            lines.append(tr("text.status_plugins_failed", names=", ".join(n for n, _ in self.plugins.failed)))
+        out = tr("text.status", lines="\n".join(lines))
+        return out + ("\n\n" + tr("text.status_pool") if self.pool else "")
 
     def status_keyboard(self) -> dict | None:
         rows = []
@@ -971,7 +980,8 @@ class UI:
             return
         self.core.store.put("export_pending", {"pk": b64.enc(pk), "at": int(time.time())})
         what = self.T("text.export_identity") if bundle.get("device") else self.T("text.export_no_identity")
-        await self._say(self.T("text.export_confirm", identity=what, tokens=len(bundle["tokens"]), posts=len(bundle["posts"]),
+        await self._say(self.T("text.export_confirm", identity=what, tokens=len(bundle["tokens"]),
+                               posts=len(bundle["posts"]),
                                contacts=len(bundle["contacts"])),
                         keyboard([[(self.T("button.export_yes"), "ex:ok"), (self.T("button.cancel"), "ex:no")]]))
         del bundle
@@ -1085,7 +1095,8 @@ class UI:
         self.core.store.put("wipe_at", pending)
 
     def unschedule_wipe(self, chat: int, mid: int) -> None:
-        self.core.store.put("wipe_at", [w for w in self.core.store.get("wipe_at") or [] if w[:2] != [chat, mid]] or None)
+        self.core.store.put("wipe_at",
+                            [w for w in self.core.store.get("wipe_at") or [] if w[:2] != [chat, mid]] or None)
 
     async def wipe_due(self) -> None:
         now = int(time.time())
@@ -1189,24 +1200,25 @@ class UI:
 
     async def _post_action(self, n: int, action: str, msg: dict) -> None:
         """Меню поста одноразовое: после выбора кнопки убираются, повторное нажатие старого меню невозможно."""
-        T = self.T
-        names = {"reply": T("button.reply"), "append": T("button.upd"), "replace": T("button.fix"),
-                 "del": T("button.delete"), "delok": T("button.delete_yes"), "none": T("button.cancel")}
+        tr = self.T
+        names = {"reply": tr("button.reply"), "append": tr("button.upd"), "replace": tr("button.fix"),
+                 "del": tr("button.delete"), "delok": tr("button.delete_yes"), "none": tr("button.cancel")}
         if action == "none":
-            await self.bot.edit(msg["chat"]["id"], msg["message_id"], T("text.cancelled"))
+            await self.bot.edit(msg["chat"]["id"], msg["message_id"], tr("text.cancelled"))
             return
         if action in names:
-            await self.bot.edit(msg["chat"]["id"], msg["message_id"], T("text.menu_used", n=n, action=names[action]))
+            await self.bot.edit(msg["chat"]["id"], msg["message_id"], tr("text.menu_used", n=n, action=names[action]))
         if action in ("reply", "append", "replace"):
-            ask = await self._say(T({"reply": "text.await_reply", "append": "text.await_append",
+            ask = await self._say(tr({"reply": "text.await_reply", "append": "text.await_append",
                                      "replace": "text.await_replace"}[action], n=n), self._cancel_kb())
             self.core.store.put("await", {"what": action, "n": n, "ask": ask["message_id"] if ask else None})
         elif action == "del":
-            await self._say(T("text.confirm_delete", n=n), keyboard([[(T("button.delete_yes"), f"p:{n}:delok"),
-                                                                       (T("button.cancel"), f"p:{n}:none")]]))
+            await self._say(tr("text.confirm_delete", n=n), keyboard([[(tr("button.delete_yes"), f"p:{n}:delok"),
+                                                                       (tr("button.cancel"), f"p:{n}:none")]]))
         elif action == "delok":
             await self._run(lambda: self.core.delete_post(n),
-                            lambda r: T("text.deleted_partly", n=n, left=r["left"]) if r.get("left") else T("text.deleted", n=n),
+                            lambda r: (tr("text.deleted_partly", n=n, left=r["left"]) if r.get("left")
+                                       else tr("text.deleted", n=n)),
                             status=msg, name="post.delete")
 
     # --- токены, ник, лента ---
@@ -1279,7 +1291,7 @@ class UI:
     async def _token_part(self, text: str) -> None:
         try:
             added = self.core.accept_token_part(text)
-        except api.UnknownTokenRequest:
+        except api.UnknownTokenRequestError:
             await self._say(self.T("text.tokens_unknown_request"))
             return
         except (IssueFormatError, ValueError) as e:
@@ -1332,7 +1344,8 @@ class UI:
         text = head + ("\n" + ev.text if ev.text else "")
         shift = privacy.utf16(head + "\n")
         ents = [{**e, "offset": e["offset"] + shift} for e in (ev.entities or [])] if ev.text else None
-        markup = keyboard([[(self.T("button.private_files", n=ev.file_count), f"pf:{ev.n}")]]) if ev.file_count else None
+        markup = (keyboard([[(self.T("button.private_files", n=ev.file_count), f"pf:{ev.n}")]])
+                  if ev.file_count else None)
         await self.bot.send(self.owner, text, entities=ents or None, markup=markup)
 
     async def _private_files(self, n: int, msg: dict) -> None:
@@ -1370,7 +1383,7 @@ class UI:
                 continue
             try:
                 await self._sync_once()
-            except (ServerError, NoReply, TelegramError) as e:
+            except (ServerError, NoReplyError, TelegramError) as e:
                 log.info("feed sync: %s", e)
             except Exception as e:  # цикл ленты не должен умирать до перезапуска бота
                 log.warning("feed sync: %s", type(e).__name__)

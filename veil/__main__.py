@@ -82,7 +82,8 @@ async def build(cfg: dict, base: Path, token: str, store: Store, owner_id: int =
         store.put("pinned_issuer", offered)
         store.put("issuer_repin", None)
     elif current != offered:
-        logging.warning("keys.json offers another issuer key (%s, pinned %s): confirm with `python -m veil %s pin-issuer`",
+        logging.warning("keys.json offers another issuer key (%s, pinned %s): "
+                        "confirm with `python -m veil %s pin-issuer`",
                         kid, current.get("kid"), cfg.get("_config_name", "config.toml"))
         store.put("issuer_repin", offered)
     else:
@@ -142,7 +143,8 @@ async def main(cfg_path: Path) -> None:
         raise SystemExit("нет токена бота в переменной окружения")
     store = Store(base / cfg["storage"].get("data_dir", "data"))
     if store.legacy_identity_path.exists():
-        raise SystemExit("В data/identity.json лежат 12 слов открытым текстом (старый формат). Переведите личность на ключ\n"
+        raise SystemExit("В data/identity.json лежат 12 слов открытым текстом (старый формат). "
+                         "Переведите личность на ключ\n"
                          f"устройства: python -m veil {cfg_path.name} migrate — файл со словами будет затёрт.")
     engine = plugin_engine.make_engine(cfg, base, store.dir, store)
     ui, bot, core = await build(cfg, base, token, store, engine=engine)

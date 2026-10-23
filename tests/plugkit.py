@@ -13,10 +13,10 @@ import sys
 import textwrap
 from pathlib import Path
 
+from harness import Env
+
 from veil import plugin_engine, plugins
 from veil.ui import bot as uibot
-
-from harness import Env
 
 ROOT = Path(__file__).resolve().parent.parent
 WASM = ROOT / "engine" / "dist" / "veil-engine.wasm"
@@ -62,7 +62,8 @@ def package(base: Path, id_: str, code: str, **extra) -> Path:
     return d
 
 
-def bot(tmp: Path, enabled: list[str], engine: plugin_engine.Engine | None = None, **conf) -> tuple[Env, plugins.Registry]:
+def bot(tmp: Path, enabled: list[str], engine: plugin_engine.Engine | None = None,
+        **conf) -> tuple[Env, plugins.Registry]:
     e = Env(tmp / "data")
     reg = plugins.load({"plugins": {"enabled": enabled, **conf}}, tmp, None, engine or new_engine())
     e.ui.plugins = reg

@@ -1,7 +1,7 @@
 """Проверка пакета плагина без бота и без сервера — в том же движке, что у бота (docs/PLUGINS.md, «Проверка»).
 
-  python -m veil.plugin_dev <каталог пакета> [--settings=<файл.toml>] [--data=<каталог>] [--tokens=<n>] [--script=<файл>]
-                            [--engine=<движок.wasm>] [--cache=<каталог машинного кода>]
+  python -m veil.plugin_dev <каталог пакета> [--settings=<файл.toml>] [--data=<каталог>] [--tokens=<n>]
+                            [--script=<файл>] [--engine=<движок.wasm>] [--cache=<каталог машинного кода>]
 
 Бот здесь — консоль: notify_owner и propose_draft печатаются, tokens_today возвращает --tokens (50), http — настоящий
 запрос к хостам манифеста. Движок — официальный (python -m veil.plugin_engine fetch) или свой (--engine); машинный код
@@ -29,9 +29,9 @@ import asyncio
 import json
 import logging
 import shutil
-import time
 import sys
 import tempfile
+import time
 import tomllib
 from pathlib import Path
 
@@ -127,7 +127,8 @@ class Session:
             if word.startswith("/"):
                 self._turn()
                 if not await self.reg.run_command(word[1:], rest):
-                    out(f"? команды {word} у плагина нет; есть: {', '.join('/' + c for c, _ in self.reg.menu()) or 'нет'}")
+                    known = ", ".join("/" + c for c, _ in self.reg.menu()) or "нет"
+                    out(f"? команды {word} у плагина нет; есть: {known}")
             elif word == "start":
                 self.reg.fire("start")
             elif word == "reply":

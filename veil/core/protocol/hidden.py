@@ -16,8 +16,7 @@ from __future__ import annotations
 
 import secrets
 
-from nacl.bindings import (crypto_aead_xchacha20poly1305_ietf_decrypt,
-                           crypto_aead_xchacha20poly1305_ietf_encrypt)
+from nacl.bindings import crypto_aead_xchacha20poly1305_ietf_decrypt, crypto_aead_xchacha20poly1305_ietf_encrypt
 from nacl.public import PrivateKey, PublicKey, SealedBox
 
 from . import b64, jcs

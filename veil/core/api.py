@@ -19,9 +19,10 @@ from nacl.signing import SigningKey
 from veil.core import privacy
 from veil.core.crypto import keys, poprf
 from veil.core.identity import nick as nickmod
-from veil.core.protocol import b64, content as contentmod, hidden, keysdoc
+from veil.core.protocol import b64, hidden, keysdoc
+from veil.core.protocol import content as contentmod
 from veil.core.store.db import Store
-from veil.core.transport.exchange import Exchange, NoReply, ServerError
+from veil.core.transport.exchange import Exchange, NoReplyError, ServerError
 from veil.core.transport.telegram import Bot
 from veil.core.wallet import issue
 
@@ -39,36 +40,36 @@ def today() -> str:
     return datetime.now(timezone.utc).date().isoformat()
 
 
-class NoTokens(Exception):
+class NoTokensError(Exception):
     pass
 
 
-class UnknownTokenRequest(Exception):
+class UnknownTokenRequestError(Exception):
     """Ответ эмитента не на запрос этого бота: на запрос другого бота или на старый, уже принятый."""
 
 
-class PostQueued(Exception):
+class PostQueuedError(Exception):
     """Конверт поста отправлен, но итога нет (очередь публикации длиннее повторов или сервер не ответил). Секрет
     поста сохранён: Core.resume_pending дозапросит результат тем же конвертом."""
 
 
-class NotMine(Exception):
+class NotMineError(Exception):
     pass
 
 
-class Ambiguous(Exception):
+class AmbiguousError(Exception):
     """Под ником·меткой несколько проверенных личностей."""
 
 
-class NoIdentity(Exception):
+class NoIdentityError(Exception):
     """Личность ещё не создана: на машине бота нужно выполнить init или restore (spec/02)."""
 
 
-class DeviceRevoked(Exception):
+class DeviceRevokedError(Exception):
     """Сертификат этого устройства отозван: личность восстановлена по 12 словам на другом устройстве (E_STALE)."""
 
 
-class OtherBot(Exception):
+class OtherBotError(Exception):
     """Личность привязана к другому боту (E_BOT_NOT_BOUND): перенос на этот бот — restore на его машине."""
 
 
@@ -160,7 +161,7 @@ class Core:
     def device(self) -> keys.Device:
         d = self.device_or_none()
         if d is None:
-            raise NoIdentity()
+            raise NoIdentityError()
         return d
 
     def _save_device(self) -> None:
@@ -169,8 +170,8 @@ class Core:
     async def sync_device(self, force: bool = False) -> dict | None:
         """Сверяет регистрацию с сервером и чинит её: новое устройство или откат базы сервера — device.set
         (1 токен), ключ шифрования старше 7 дней — новый (enc.set, бесплатно). Возвращает состояние личности
-        на сервере (None — личности нет). DeviceRevoked — устройство отозвано восстановлением на другом;
-        OtherBot — личность привязана к другому боту; NoTokens — регистрации нужен токен."""
+        на сервере (None — личности нет). DeviceRevokedError — устройство отозвано восстановлением на другом;
+        OtherBotError — личность привязана к другому боту; NoTokensError — регистрации нужен токен."""
         d = self.device_or_none()
         if d is None:
             return None
@@ -184,7 +185,7 @@ class Core:
             st = await self.exchange.request("device.get", "identity", d.dev_sk)
         except ServerError as e:
             if e.code == "E_BOT_NOT_BOUND":
-                raise OtherBot() from e
+                raise OtherBotError() from e
             if e.code != "E_DEVICE":
                 raise
             st = await self._register()
@@ -204,7 +205,7 @@ class Core:
         ключом устройства с этого бота). Иначе файл мог собрать кто угодно."""
         try:
             st = await self.exchange.request("device.get", "identity", d.dev_sk)
-        except (ServerError, NoReply):
+        except (ServerError, NoReplyError):
             return False
         return st.get("id_pk") == b64.enc(d.id_pk) and int(st.get("seq", d.seq)) == d.seq
 
@@ -215,9 +216,9 @@ class Core:
             res = await self._paid("device.set", "identity", d.dev_sk, body=d.device_body())
         except ServerError as e:
             if e.code == "E_STALE":
-                raise DeviceRevoked() from e
+                raise DeviceRevokedError() from e
             if e.code == "E_BOT_NOT_BOUND":
-                raise OtherBot() from e
+                raise OtherBotError() from e
             raise
         return {"tag": res.get("tag"), "nick": res.get("nick")}
 
@@ -278,10 +279,11 @@ class Core:
         req_id, i, n = m.group(1), int(m.group(2)), int(m.group(3))
         state = self.store.issue_request(req_id)
         if state is None:
-            raise UnknownTokenRequest()
+            raise UnknownTokenRequestError()
         parts = self.store.add_issue_part(req_id, i, n, text.strip())
         if parts is None:
-            got = self.store.db.execute("SELECT count(*) FROM issue_parts WHERE req_id = ? AND n = ?", (req_id, n)).fetchone()[0]
+            got = self.store.db.execute("SELECT count(*) FROM issue_parts WHERE req_id = ? AND n = ?",
+                                        (req_id, n)).fetchone()[0]
             return got, n
         pending = issue.PendingRequest(bytes.fromhex(req_id), {
             d: (v["kid"], [poprf.BlindState(bytes.fromhex(a), b, bytes.fromhex(c))
@@ -365,7 +367,7 @@ class Core:
         for _ in range(BAD_TOKEN_TRIES):
             tok = self.store.take_token(today())
             if tok is None:
-                raise NoTokens()
+                raise NoTokensError()
             journaled = []
             req = dict(kw)
             if kw.get("journal"):
@@ -382,7 +384,7 @@ class Core:
                         log.warning("transferred token rejected; %d more from the same transfer not used", n)
                     continue
                 raise
-            except NoReply:
+            except NoReplyError:
                 self.store.finish_token(tok, "spent" if journaled else "ready")
                 raise
             except BaseException:
@@ -390,7 +392,7 @@ class Core:
                 raise
             self.store.finish_token(tok, "spent")
             return res
-        raise NoTokens()
+        raise NoTokensError()
 
     # --- проверка черновика ---
     async def check_draft(self, d: Draft) -> list[tuple[str, dict]]:
@@ -406,7 +408,7 @@ class Core:
             if e.code == "E_UNSUPPORTED":
                 return [("text.mode_unavailable", {})]
             return []  # сервер недоступен или занят: проверит при отправке
-        except NoReply:
+        except NoReplyError:
             return []
         if res.get("overflow", 0) > 0:
             problems.append(("text.too_long", {"n": res["overflow"]}))
@@ -454,9 +456,9 @@ class Core:
                     raise
                 await self.sync_device(force=True)  # база сервера откатилась или устройство отозвано
                 res = await attempt()
-        except (NoReply, ServerError) as e:
-            if isinstance(e, NoReply) or e.code == "E_PENDING" or e.accepted:
-                raise PostQueued() from e
+        except (NoReplyError, ServerError) as e:
+            if isinstance(e, NoReplyError) or e.code == "E_PENDING" or e.accepted:
+                raise PostQueuedError() from e
             for old in ids:
                 self.store.drop_pending_post(old)
             raise
@@ -491,7 +493,7 @@ class Core:
                 self.store.drop_pending_post(env_id)
                 out.append(("failed", None))
                 continue
-            except NoReply:
+            except NoReplyError:
                 continue
             self.store.add_post(res["n"], secret, res.get("url", ""), kind)
             self.store.drop_pending_post(env_id)
@@ -501,7 +503,7 @@ class Core:
     def _post_key(self, n: int) -> SigningKey:
         secret = self.store.post_secret(n)
         if secret is None:
-            raise NotMine(n)
+            raise NotMineError(n)
         return keys.post_signing_key(secret)
 
     async def edit_post(self, d: Draft) -> dict:
@@ -557,7 +559,8 @@ class Core:
         if p.get("hidden_file") and files:
             pending = {k: v for k, v in (self.store.get("private_files") or {}).items()
                        if time.time() - v.get("at", 0) < PRIVATE_FILES_TTL}
-            pending[str(p["n"])] = {"entry": {k: p[k] for k in ("n", "hidden_for", "hidden_blob", "post_pk", "bot", "url")
+            pending[str(p["n"])] = {"entry": {k: p[k]
+                                              for k in ("n", "hidden_for", "hidden_blob", "post_pk", "bot", "url")
                                               if k in p}, "at": int(time.time())}
             self.store.put("private_files", pending)
             ev.file_count = len(files)
@@ -591,7 +594,8 @@ class Core:
     async def find_recipient(self, nick: str, tag: str) -> dict:
         """Получатель «лично для»: запись nick.lookup, прошедшая проверку цепочки подписей и метки (spec/02).
         Возвращает {"nick", "id_pk", "enc_pk", "seq"} (b64url). Устройство старше уже виденного — отказ (сервер
-        вернул отозванное). Несколько проверенных записей — Ambiguous: пара ник·метка уникальна, значит что-то не так."""
+        вернул отозванное). Несколько проверенных записей — AmbiguousError: пара ник·метка уникальна, значит
+        что-то не так."""
         res = await self.exchange.request("nick.lookup", "ephemeral", SigningKey.generate(),
                                           body={"nick": nick, "tag": tag})
         seen = self.store.get("contact_seq") or {}
@@ -599,16 +603,16 @@ class Core:
         for m in res.get("matches", []):
             try:
                 v = keys.verify_lookup_match(m, tag, tag_fn=self.tag_of)
-            except keys.KeyMismatch:
+            except keys.KeyMismatchError:
                 continue
             if seen.get(b64.enc(v.id_pk), 0) > v.seq:
                 log.warning("nick.lookup returned a revoked device (rollback)")
                 continue
             ok.append({"nick": v.nick or nick, "id_pk": b64.enc(v.id_pk), "enc_pk": b64.enc(v.enc_pk), "seq": v.seq})
         if not ok:
-            raise keys.KeyMismatch("ни одна запись не прошла проверку")
+            raise keys.KeyMismatchError("ни одна запись не прошла проверку")
         if len(ok) > 1:
-            raise Ambiguous(keys.display_name(nick, tag))
+            raise AmbiguousError(keys.display_name(nick, tag))
         return ok[0]
 
     def known_recipient(self, label: str) -> str | None:

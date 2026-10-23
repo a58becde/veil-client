@@ -63,8 +63,8 @@ class Manifest:
         return bool(self.sensitive) and "net" in self.permissions
 
     def grant(self) -> dict:
-        """То, на что соглашается владелец: разрешения, хосты и ключ автора (не версия — обновление того же автора с теми
-        же правами согласия не просит; другой автор под тем же id — просит)."""
+        """То, на что соглашается владелец: разрешения, хосты и ключ автора (не версия — обновление того же автора
+        с теми же правами согласия не просит; другой автор под тем же id — просит)."""
         return {"permissions": sorted(self.permissions), "network": sorted(self.network), "author_pk": self.author_pk}
 
     def covered_by(self, grant: dict | None) -> bool:
@@ -152,7 +152,8 @@ def package_files(pdir: Path) -> list[Path]:
 
 
 def read_package(pdir: Path) -> tuple[dict[str, bytes], str]:
-    """Файлы пакета и SHA-256 содержимого (имена и байты) — из одного чтения: в движок уходит ровно то, что посчитано."""
+    """Файлы пакета и SHA-256 содержимого (имена и байты) — из одного чтения:
+    в движок уходит ровно то, что посчитано."""
     files, h = {}, hashlib.sha256()
     for p in package_files(pdir):
         data = p.read_bytes()

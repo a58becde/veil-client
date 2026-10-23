@@ -11,8 +11,7 @@ from nacl.public import PrivateKey, PublicKey, SealedBox
 from nacl.signing import SigningKey, VerifyKey
 
 from . import b64, jcs
-from .errors import (E_CLOCK, E_DECRYPT, E_MALFORMED, E_NOT_ENVELOPE, E_SIG, E_VERSION,
-                     ProtocolError)
+from .errors import E_CLOCK, E_DECRYPT, E_MALFORMED, E_NOT_ENVELOPE, E_SIG, E_VERSION, ProtocolError
 
 VERSION = 1
 PREFIX = "VEIL1 "
