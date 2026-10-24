@@ -113,6 +113,17 @@ def test_envelope():
         assert ex.value.code == r["code"], r["why"]
 
 
+def test_response_reject():
+    """Строгий состав подписанного ответа и предел длины (spec/09, spec/04)."""
+    rr = V["response_reject"]
+    assert len(rr["cases"]) >= 11
+    for c in rr["cases"]:
+        with pytest.raises(ProtocolError) as ex:
+            envelope.open_response(c["sealed"], PrivateKey(bytes.fromhex(rr["resp_sk"])),
+                                   b64.dec(rr["server_sig_pk"]), rr["expect_id"])
+        assert ex.value.code == c["code"], c["why"]
+
+
 def test_response_parts():
     r, p = V["response"], V["response_parts"]
     parts = p["parts"]
@@ -169,8 +180,82 @@ def test_limits_single_source():
     assert [nick.MIN_GRAPHEMES, nick.MAX_GRAPHEMES] == L["nick_graphemes"] and keys.TAG_CHARS == L["tag_chars"]
     assert issue.MAX_DAYS == L["issue_days_max"]
     from veil.core.protocol import errors
-    assert list(errors.CODES) == V["error_codes"]  # коды ответа — тот же список, что у сервера (protocol.Codes)
+    assert list(errors.CODES) == V["error_codes"]  # коды ответа — тот же список, что у сервера
     assert envelope.KID_PATTERN == V["formats"]["kid"]
+    assert envelope.OP_PATTERN == V["formats"]["op"] and envelope.ULID_PATTERN == V["formats"]["id"]
+    assert envelope.MAX_RESPONSE == L["response_json_max"] == 47951
+    assert envelope.MAX_DOC_PLAINTEXT == L["envelope_doc_json_max"]
+
+
+def test_strong_key_rule():
+    """auth.pk: каноническая кодировка и [8]P ≠ нейтральной (spec/04) — не crypto_core_ed25519_is_valid_point."""
+    from nacl.bindings import crypto_core_ed25519_is_valid_point
+    from nacl.signing import SigningKey
+    small = [bytes(32), b"\x01" + bytes(31), bytes.fromhex("ec" + "ff" * 30 + "7f"),  # y = 0, 1, -1
+             bytes.fromhex("26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05"),  # порядок 8
+             bytes.fromhex("c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac037a"),
+             bytes.fromhex("26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc85"),
+             bytes.fromhex("c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac03fa")]
+    non_canonical = [bytes.fromhex("ed" + "ff" * 30 + "7f"), bytes.fromhex("ee" + "ff" * 30 + "7f"),  # y = p, p + 1
+                     b"\x01" + bytes(30) + b"\x80",  # x = 0 со знаком 1
+                     bytes.fromhex("02" + "00" * 31)]  # не точка кривой
+    for pk in small + non_canonical:
+        assert not envelope.strong_key(pk), pk.hex()
+    base = bytes.fromhex("58" + "66" * 31)
+    mixed = envelope._add(envelope._decompress(base), (0, envelope._P - 1))  # B + точка порядка 2
+    mixed_pk = (mixed[1] | (mixed[0] & 1) << 255).to_bytes(32, "little")
+    assert envelope.strong_key(base) and envelope.strong_key(bytes(SigningKey.generate().verify_key))
+    # Смешанный порядок правилом протокола допускается, хотя libsodium такую точку отвергает.
+    assert envelope.strong_key(mixed_pk) and not crypto_core_ed25519_is_valid_point(mixed_pk)
+    assert not envelope.strong_key(base[:31]) and not envelope.strong_key(base + b"\x00")
+
+
+def test_build_rejects_caller_errors():
+    from nacl.signing import SigningKey
+    sk = SigningKey.generate()
+
+    def bad(**kw):
+        args = {"op": "post.create", "kid": "i1", **kw}
+        with pytest.raises(ValueError):
+            envelope.build(args.pop("op"), kw.get("auth_mode", "ephemeral"), sk, args.pop("kid"),
+                           **{k: v for k, v in args.items() if k != "auth_mode"})
+    for kw in ({"op": "Post"}, {"op": "post."}, {"op": 1}, {"op": "post.create\n"}, {"kid": "a/b"}, {"kid": ""},
+               {"kid": "x" * 33}, {"id_": "01k7zz0000000000000000test"}, {"id_": "8" + "0" * 25}, {"ts": True},
+               {"ts": -1}, {"ts": 1.5}, {"ts": "1"}, {"auth_mode": "x"}):
+        bad(**kw)
+    envelope.build("ping", "ephemeral", sk, "i1", ts=0, id_="01K7ZZ0000000000000000TEST")
+
+
+def test_response_size_limits():
+    from nacl.signing import SigningKey
+    server = SigningKey.generate()
+    pk = bytes(PrivateKey.generate().public_key)
+
+    def resp(size):
+        r = envelope.build_response("x", server, result={"pad": ""})
+        r["result"]["pad"] = "a" * (size - len(envelope.jcs.canonicalize(r)))
+        return r
+    envelope.seal_response(resp(envelope.MAX_RESPONSE), pk)  # ровно предел — можно
+    with pytest.raises(ValueError):
+        envelope.seal_response(resp(envelope.MAX_RESPONSE + 1), pk)
+    with pytest.raises(ValueError):
+        envelope.split_response("VEIL1R " + "A" * (envelope.MAX_RESP_PARTS * envelope.RESP_PART_CHARS + 1))
+    with pytest.raises(ValueError):
+        envelope.split_response("x" * 5000)
+    full = envelope.split_response("VEIL1R " + "A" * (envelope.MAX_RESP_PARTS * envelope.RESP_PART_CHARS))
+    assert len(full) == 16 and all(len(x) <= 4096 for x in full)
+    assert envelope.split_response("VEIL1R abc") == ["VEIL1R abc"]
+
+
+def test_response_part_numbers():
+    for t, want in (("VEIL1R 1/2 AAAA", (1, 2)), ("VEIL1R 16/16 AAAA", (16, 16)), ("VEIL1R 01/02 AAAA", None),
+                    ("VEIL1R 0/2 AAAA", None), ("VEIL1R 3/2 AAAA", None), ("VEIL1R 1/17 AAAA", None),
+                    ("VEIL1R 1/2 AAAA\n", None), ("VEIL1R AAAA", None)):
+        assert envelope.is_response_part(t) == want, t
+    for parts in (["VEIL1R 17/20 AAAA"], ["VEIL1R 01/02 AAAA", "VEIL1R 2/2 AAAA"], []):
+        with pytest.raises(ProtocolError) as ex:
+            envelope.join_response(parts)
+        assert ex.value.code == "E_MALFORMED"
 
 
 # --- маркет плагинов (spec/10) ---

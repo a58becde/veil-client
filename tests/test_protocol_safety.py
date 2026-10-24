@@ -117,3 +117,54 @@ def test_exchange_repeats_same_envelope_on_pending(monkeypatch):
         return await task
 
     assert asyncio.run(scenario()) == {"n": 7}
+
+
+def _exchange_in_flight(monkeypatch):
+    """Обмен с ключами сервера и приёма; sleep не ждёт."""
+    server, inbox, bot = SigningKey.generate(), PrivateKey.generate(), _Bot()
+    ex = Exchange(bot, "@inbox", bytes(server.verify_key), lambda: ("i1", bytes(inbox.public_key)))
+    real_sleep = asyncio.sleep
+    monkeypatch.setattr(exmod.asyncio, "sleep", lambda s: real_sleep(0))
+    return ex, bot, server, inbox, real_sleep
+
+
+def test_signed_malformed_response_ends_request(monkeypatch):
+    """подписано сервером, но испорчено (чужой re): операция завершается сразу, ProtocolError.signed."""
+    ex, bot, server, inbox, real_sleep = _exchange_in_flight(monkeypatch)
+
+    async def scenario():
+        task = asyncio.create_task(ex.request("post.create", "ephemeral", SigningKey.generate(), body={"x": 1}))
+        await real_sleep(0.01)
+        env = envelope.open_envelope(bot.sent[-1], inbox)
+        bad = envelope.build_response("other-id", server, result={"n": 1})
+        ex.on_inbox_message({"text": envelope.seal_response(bad, envelope.b64.dec(env["resp_pk"])),
+                             "reply_to_message": {"message_id": 101}})
+        return await asyncio.wait_for(task, 1)
+
+    with pytest.raises(exmod.ProtocolError) as ei:
+        asyncio.run(scenario())
+    assert ei.value.code == "E_MALFORMED" and ei.value.signed
+
+
+def test_unsigned_malformed_response_is_ignored(monkeypatch):
+    """E_MALFORMED до проверки подписи (не объект) — не завершает операцию: ждём настоящий ответ."""
+    ex, bot, server, inbox, real_sleep = _exchange_in_flight(monkeypatch)
+
+    async def scenario():
+        task = asyncio.create_task(ex.request("post.create", "ephemeral", SigningKey.generate(), body={"x": 1}))
+        await real_sleep(0.01)
+        env = envelope.open_envelope(bot.sent[-1], inbox)
+        resp_pk = envelope.b64.dec(env["resp_pk"])
+        junk = envelope.seal_response([], resp_pk)  # type: ignore[arg-type]  # намеренно не объект
+        resp_sk = next(iter(ex._pending.values())).resp_sk
+        with pytest.raises(exmod.ProtocolError) as ei:
+            envelope.open_response(junk, resp_sk, bytes(server.verify_key), env["id"])
+        assert ei.value.code == "E_MALFORMED" and not ei.value.signed
+        ex.on_inbox_message({"text": junk, "reply_to_message": {"message_id": 101}})
+        await real_sleep(0.01)
+        assert not task.done()
+        good = envelope.build_response(env["id"], server, result={"n": 7})
+        ex.on_inbox_message({"text": envelope.seal_response(good, resp_pk), "reply_to_message": {"message_id": 101}})
+        return await asyncio.wait_for(task, 1)
+
+    assert asyncio.run(scenario()) == {"n": 7}

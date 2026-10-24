@@ -237,7 +237,9 @@ class Exchange:
                 return
         try:
             p.future.set_result(envelope.open_response(text, p.resp_sk, self.server_sig_pk, p.env_id))
-        except ProtocolError as e:  # подделка или чужой ответ: ждём дальше настоящего
-            if part is None:
+        except ProtocolError as e:
+            # Подделка или чужой ответ (E_DECRYPT, E_SIG, E_NOT_ENVELOPE, E_MALFORMED до проверки подписи): ждём
+            # дальше настоящего. Ответ, подписанный сервером, но испорченный, настоящего не заменит: завершаем сразу.
+            if part is None and not e.signed:
                 return
             p.future.set_exception(e)

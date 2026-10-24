@@ -41,3 +41,5 @@ class ProtocolError(Exception):
         super().__init__(f"{code}: {message}" if message else code)
         self.code = code
         self.extra = extra
+        # Ошибка найдена после успешной проверки подписи сервера: ответ настоящий, но испорчен (open_response)
+        self.signed = False

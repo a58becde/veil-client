@@ -10,7 +10,7 @@ import json
 import sys
 from pathlib import Path
 
-from nacl.public import PrivateKey
+from nacl.public import PrivateKey, SealedBox
 from nacl.signing import SigningKey
 
 from veil import market
@@ -110,11 +110,12 @@ def main() -> None:
                    "nick_codepoints_max": nick.MAX_CODEPOINTS, "nick_marks_max": nick.MAX_MARKS,
                    "tag_chars": keys.TAG_CHARS, "edit_limit": 5, "edit_window_hours": 24,
                    "hidden_text_units_max": hidden.MAX_TEXT_UNITS, "hidden_payload_max": hidden.MAX_PAYLOAD,
-                   "envelope_doc_json_max": envelope.MAX_DOC_PLAINTEXT}
+                   "envelope_doc_json_max": envelope.MAX_DOC_PLAINTEXT,
+                   "response_json_max": envelope.MAX_RESPONSE}
     assert coreapi.TOKENS_PER_DAY == issue.MAX_PER_DAY
     # Коды ошибок ответа и форматы идентификаторов — тоже один список на обе стороны.
     v["error_codes"] = list(errors.CODES)
-    v["formats"] = {"kid": envelope.KID_PATTERN}
+    v["formats"] = {"kid": envelope.KID_PATTERN, "op": envelope.OP_PATTERN, "id": envelope.ULID_PATTERN}
     v["text_sha256"] = [{"text": t, "sha256": content.text_sha256(t)} for t in ("", "Привет, мир", "a\nb 😀")]
     ent_cases = [[], [{"offset": 0, "length": 7, "type": "bold"}, {"offset": 7, "length": 6, "type": "italic"}],
                  [{"offset": 3, "length": 4, "type": "text_link", "url": "https://example.com/x"},
@@ -148,9 +149,7 @@ def main() -> None:
     def tampered(mut):
         e = json.loads(json.dumps(env))
         mut(e)
-        return envelope.PREFIX + b64.enc(
-            __import__("nacl.public", fromlist=["SealedBox"]).SealedBox(inbox_sk.public_key).encrypt(
-                b"\x00" + jcs.canonicalize(e)))
+        return envelope.PREFIX + b64.enc(SealedBox(inbox_sk.public_key).encrypt(b"\x00" + jcs.canonicalize(e)))
 
     def resign(e):
         e["sig"] = b64.enc(dev.sign(envelope.signing_input(e)).signature)
@@ -164,6 +163,45 @@ def main() -> None:
                     "sealed": tampered(lambda e: (e.__setitem__("ts", ts - 301), resign(e)))})
     rejects.append({"why": "unsupported version", "code": "E_VERSION",
                     "sealed": tampered(lambda e: (e.__setitem__("v", 99), resign(e)))})
+    # Формат полей проверяется до подписи; типы v и ts — логическое значение не целое число (spec/04).
+    rejects.append({"why": "v is true (signed)", "code": "E_VERSION",
+                    "sealed": tampered(lambda e: (e.__setitem__("v", True), resign(e)))})
+    rejects.append({"why": "ts is true (signed)", "code": "E_MALFORMED",
+                    "sealed": tampered(lambda e: (e.__setitem__("ts", True), resign(e)))})
+    rejects.append({"why": "ts is a string (signed)", "code": "E_MALFORMED",
+                    "sealed": tampered(lambda e: (e.__setitem__("ts", str(ts)), resign(e)))})
+    rejects.append({"why": "op with a capital letter (signed)", "code": "E_MALFORMED",
+                    "sealed": tampered(lambda e: (e.__setitem__("op", "Post.create"), resign(e)))})
+    rejects.append({"why": "op broken without re-signing: format is checked before the signature",
+                    "code": "E_MALFORMED",
+                    "sealed": tampered(lambda e: e.__setitem__("op", "post.CREATE"))})
+    rejects.append({"why": "id in lower case (signed)", "code": "E_MALFORMED",
+                    "sealed": tampered(lambda e: (e.__setitem__("id", e["id"].lower()), resign(e)))})
+    rejects.append({"why": "kid with a slash (signed)", "code": "E_MALFORMED",
+                    "sealed": tampered(lambda e: (e.__setitem__("kid", "i/1"), resign(e)))})
+    rejects.append({"why": "resp_pk of 31 bytes (signed)", "code": "E_MALFORMED",
+                    "sealed": tampered(lambda e: (e.__setitem__("resp_pk", b64.enc(bytes(31))), resign(e)))})
+
+    def neutral_key(e):
+        # Нейтральная точка Ed25519 (y = 1) и «подпись» R = нейтральная точка, S = 0: верна для любого сообщения
+        # в реализациях без проверки малого порядка (spec/04).
+        neutral = b"\x01" + bytes(31)
+        e["auth"]["pk"] = b64.enc(neutral)
+        e["sig"] = b64.enc(neutral + bytes(32))
+    rejects.append({"why": "auth.pk is the neutral point, sig = neutral point || 0", "code": "E_MALFORMED",
+                    "sealed": tampered(neutral_key)})
+    rejects.append({"why": "clock skew +301s", "code": "E_CLOCK",
+                    "sealed": tampered(lambda e: (e.__setitem__("ts", ts + 301), resign(e)))})
+
+    def pad_to(e, size):
+        # Подгоняет канонический JSON ровно до size байт полем body (подпись фиксированной длины).
+        e["body"] = {"pad": ""}
+        resign(e)
+        e["body"] = {"pad": "a" * (size - len(jcs.canonicalize(e)))}
+        resign(e)
+        assert len(jcs.canonicalize(e)) == size
+    rejects.append({"why": "text envelope with 3001 bytes of JSON (limit 3000)", "code": "E_DECRYPT",
+                    "sealed": tampered(lambda e: pad_to(e, envelope.MAX_PLAINTEXT + 1))})
     rejects.append({"why": "not an envelope", "code": "E_NOT_ENVELOPE", "sealed": "hello"})
     rejects.append({"why": "garbage ciphertext", "code": "E_DECRYPT", "sealed": "VEIL1 " + b64.enc(bytes(80))})
     for r in rejects:
@@ -181,6 +219,54 @@ def main() -> None:
         "server_sig_pk": b64.enc(bytes(server_sig.verify_key)), "resp_sk": h(bytes(resp_sk)),
         "object": resp, "signing_input": envelope.signing_input(resp, envelope.CTX_RESPONSE).decode(),
         "sealed": envelope.seal_response(resp, bytes(resp_sk.public_key)),
+    }
+
+    def signed_response(**fields):
+        """Ответ с произвольным составом, подписанный server_sig, запечатанный на resp_sk (в обход seal_response)."""
+        r = dict(fields)
+        r["sig"] = b64.enc(server_sig.sign(envelope.signing_input(r, envelope.CTX_RESPONSE)).signature)
+        return envelope.RESP_PREFIX + b64.enc(SealedBox(resp_sk.public_key).encrypt(b"\x00" + jcs.canonicalize(r)))
+
+    def padded_response(size):
+        # Ответ, канонический JSON которого ровно size байт (подпись фиксированной длины).
+        def make(k):
+            r = {"v": 1, "re": env["id"], "ok": True, "result": {"pad": "a" * k}}
+            r["sig"] = b64.enc(server_sig.sign(envelope.signing_input(r, envelope.CTX_RESPONSE)).signature)
+            return r
+        r = make(size - len(jcs.canonicalize(make(0))))
+        assert len(jcs.canonicalize(r)) == size
+        return r
+
+    good_re, bad_code = env["id"], {"code": "E_RATE", "retry_after": 3}
+    too_big = padded_response(envelope.MAX_RESPONSE + 1)
+    response_reject = [
+        ("ok=true without result", "E_MALFORMED", signed_response(v=1, re=good_re, ok=True)),
+        ("ok=false without error", "E_MALFORMED", signed_response(v=1, re=good_re, ok=False)),
+        ("ok=true with error", "E_MALFORMED",
+         signed_response(v=1, re=good_re, ok=True, result={}, error=bad_code)),
+        ("error is a string", "E_MALFORMED", signed_response(v=1, re=good_re, ok=False, error="E_RATE")),
+        ("error without code", "E_MALFORMED", signed_response(v=1, re=good_re, ok=False, error={"overflow": 1})),
+        ("retry_after is a string", "E_MALFORMED",
+         signed_response(v=1, re=good_re, ok=False, error={"code": "E_RATE", "retry_after": "3"})),
+        ("extra top-level field", "E_MALFORMED", signed_response(v=1, re=good_re, ok=True, result={}, x=1)),
+        ("ok is a string", "E_MALFORMED", signed_response(v=1, re=good_re, ok="true", result={})),
+        ("foreign re", "E_MALFORMED", signed_response(v=1, re="01K7ZZ0000000000000000OTHR", ok=True, result={})),
+        ("v is 2", "E_VERSION", signed_response(v=2, re=good_re, ok=True, result={})),
+        ("JSON of MAX_RESPONSE+1 bytes, sealed directly", "E_DECRYPT",
+         envelope.RESP_PREFIX + b64.enc(SealedBox(resp_sk.public_key).encrypt(
+             b"\x00" + jcs.canonicalize(too_big)))),
+    ]
+    for why, code, sealed_r in response_reject:
+        try:
+            envelope.open_response(sealed_r, resp_sk, bytes(server_sig.verify_key), good_re)
+        except envelope.ProtocolError as e:
+            assert e.code == code, (why, e.code)
+        else:
+            raise AssertionError(why)
+    v["response_reject"] = {
+        "note": "Same resp_sk and server_sig as `response`. Open each with expect_id; the code is the expected error.",
+        "server_sig_pk": b64.enc(bytes(server_sig.verify_key)), "resp_sk": h(bytes(resp_sk)), "expect_id": good_re,
+        "cases": [{"why": w, "code": c, "sealed": t} for w, c, t in response_reject],
     }
 
     big = envelope.build_response(env["id"], server_sig, result={"feed": ["я" * 100] * 60})

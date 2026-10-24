@@ -90,8 +90,7 @@ def make_ex(ids=None):
 
 def reply_to(ex, w, inbox, server, result=None, error=None, mid=None):
     text = w.sent[-1][1]
-    env = envelope.open_envelope(text, inbox) if not text.startswith(envelope.PREFIX + " ") else None
-    env = envelope.open_envelope(text, inbox)
+    env = envelope.open_envelope(text, inbox, max_plain=envelope.MAX_DOC_PLAINTEXT)  # конверт мог уйти документом
     resp = envelope.build_response(env["id"], server, result=result, error=error)
     ex.on_inbox_message({"text": envelope.seal_response(resp, b64.dec(env["resp_pk"])),
                          "reply_to_message": {"message_id": mid or 100 + len(w.sent)}})
