@@ -30,8 +30,7 @@ def test_token_error_after_pending_keeps_post(tmp_path):
     async def request(op, *a, journal=None, **kw):
         calls.append(op)
         if journal:
-            journal({"op": op, "id": "01JA000000000000000000PEND", "auth_mode": "ephemeral", "auth_seed": "x",
-                     "resp_sk": "x"})
+            journal({"op": op, "id": "01JA000000000000000000PEND", "auth_mode": "ephemeral"})
         raise ServerError("E_TOKEN_DAY", accepted=True)
     e.core.exchange.request = request
     d = api.Draft(e.ui.owner, [{"message_id": 1, "text": "пост", "chat": {"id": 1}}])

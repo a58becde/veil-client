@@ -63,11 +63,10 @@ class _QueueExchange:
         self.states, self.resumed = [], []
 
     async def request(self, op, auth_mode, auth_key, *, journal=None, **kw):
-        journal({"op": op, "auth_mode": auth_mode, "id": "01JA00000000000000000QUEUE", "resp_sk": "x",
-                 "auth_seed": "y", "token": kw.get("token")})
+        journal({"op": op, "auth_mode": auth_mode, "id": "01JA00000000000000000QUEUE", "token": kw.get("token")})
         raise NoReplyError(op)
 
-    async def resume(self, state, auth_key=None):
+    async def resume(self, state, auth_key=None, resp_sk=None):
         self.resumed.append(state["id"])
         return {"n": 42, "url": "https://t.me/c/1/42"}
 

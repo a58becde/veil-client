@@ -130,18 +130,18 @@ class FakeServer:
     def on_inbox_message(self, m: dict) -> None:
         self.ops.append(("inbox_message", m))
 
-    async def resume(self, state, auth_key=None):
+    async def resume(self, state, auth_key=None, resp_sk=None):
         self.n += 1
         return {"n": self.n, "url": f"https://t.me/c/1/{self.n}"}
 
     async def request(self, op, auth_mode, auth_key, *, body=None, token=None, content=None, deliver=None,
-                      attachments=None, journal=None, to=None):
+                      attachments=None, journal=None, to=None, resp_sk=None):
         self.last_to = to
+        self.last_resp_sk = resp_sk
         if deliver:
             await deliver()
-        if journal:
-            journal({"op": op, "id": f"01JA{self.n:022d}"[:26], "auth_mode": auth_mode, "auth_seed": "x",
-                     "resp_sk": "x"})
+        if journal:  # журнал без ключей: их выводят из post_secret (spec/05)
+            journal({"op": op, "id": f"01JA{self.n:022d}"[:26], "auth_mode": auth_mode})
         self.ops.append((op, body or {}))
         if self.errors.get(op):
             raise self.errors[op].pop(0)

@@ -21,6 +21,8 @@ from veil.core.protocol import b64
 SALT = b"veil/v1"
 INFO_ID = b"veil/v1/identity/ed25519"
 INFO_POST = b"veil/v1/post"
+INFO_JOURNAL_AUTH = b"veil/v1/journal/auth"
+INFO_JOURNAL_RESP = b"veil/v1/journal/resp"
 DEVICE_CTX = b"veil/v1/device\n"
 ENC_KEY_CTX = b"veil/v1/enc-key\n"
 CROCKFORD = "0123456789abcdefghjkmnpqrstvwxyz"
@@ -59,6 +61,15 @@ def post_signing_key(post_secret: bytes) -> SigningKey:
     if len(post_secret) != 32:
         raise ValueError("post_secret must be 32 bytes")
     return SigningKey(hkdf_sha256(post_secret, INFO_POST))
+
+
+def journal_keys(post_secret: bytes) -> tuple[SigningKey, PrivateKey]:
+    """Ключи журнала поста, выводимые из post_secret (spec/05): одноразовый ключ подписи анонимного конверта и секрет
+    resp_pk. Не хранятся: повтор после перезапуска выводит их заново."""
+    if len(post_secret) != 32:
+        raise ValueError("post_secret must be 32 bytes")
+    return (SigningKey(hkdf_sha256(post_secret, INFO_JOURNAL_AUTH)),
+            PrivateKey(hkdf_sha256(post_secret, INFO_JOURNAL_RESP)))
 
 
 def tag(id_pk: bytes) -> str:

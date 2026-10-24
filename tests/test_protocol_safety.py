@@ -81,6 +81,9 @@ def test_token_request_shape_does_not_reveal_spending(tmp_path):
     assert s.token_received() == {day: 50}  # просить на этот день больше нечего, сколько бы ни потратили
 
 
+INBOX_FROM = {"is_bot": True, "username": "inbox"}  # отправитель сообщений приёмного бота ("@inbox")
+
+
 class _Bot:
     def __init__(self):
         self.sent = []
@@ -105,7 +108,7 @@ def test_exchange_repeats_same_envelope_on_pending(monkeypatch):
         task = asyncio.create_task(ex.request("post.create", "ephemeral", SigningKey.generate(), body={"x": 1}))
         await real_sleep(0.01)
         first = envelope.open_envelope(bot.sent[-1], inbox)
-        ex.on_inbox_message({"text": answer(first, error={"code": "E_PENDING", "retry_after": 5}),
+        ex.on_inbox_message({"from": INBOX_FROM, "text": answer(first, error={"code": "E_PENDING", "retry_after": 5}),
                              "reply_to_message": {"message_id": 101}})
         for _ in range(50):
             await real_sleep(0.01)
@@ -113,7 +116,8 @@ def test_exchange_repeats_same_envelope_on_pending(monkeypatch):
                 break
         second = envelope.open_envelope(bot.sent[-1], inbox)
         assert second["id"] == first["id"] and second["resp_pk"] == first["resp_pk"]
-        ex.on_inbox_message({"text": answer(second, result={"n": 7}), "reply_to_message": {"message_id": 102}})
+        ex.on_inbox_message({"from": INBOX_FROM, "text": answer(second, result={"n": 7}),
+                             "reply_to_message": {"message_id": 102}})
         return await task
 
     assert asyncio.run(scenario()) == {"n": 7}
@@ -137,7 +141,7 @@ def test_signed_malformed_response_ends_request(monkeypatch):
         await real_sleep(0.01)
         env = envelope.open_envelope(bot.sent[-1], inbox)
         bad = envelope.build_response("other-id", server, result={"n": 1})
-        ex.on_inbox_message({"text": envelope.seal_response(bad, envelope.b64.dec(env["resp_pk"])),
+        ex.on_inbox_message({"from": INBOX_FROM, "text": envelope.seal_response(bad, envelope.b64.dec(env["resp_pk"])),
                              "reply_to_message": {"message_id": 101}})
         return await asyncio.wait_for(task, 1)
 
@@ -160,11 +164,12 @@ def test_unsigned_malformed_response_is_ignored(monkeypatch):
         with pytest.raises(exmod.ProtocolError) as ei:
             envelope.open_response(junk, resp_sk, bytes(server.verify_key), env["id"])
         assert ei.value.code == "E_MALFORMED" and not ei.value.signed
-        ex.on_inbox_message({"text": junk, "reply_to_message": {"message_id": 101}})
+        ex.on_inbox_message({"from": INBOX_FROM, "text": junk, "reply_to_message": {"message_id": 101}})
         await real_sleep(0.01)
         assert not task.done()
         good = envelope.build_response(env["id"], server, result={"n": 7})
-        ex.on_inbox_message({"text": envelope.seal_response(good, resp_pk), "reply_to_message": {"message_id": 101}})
+        ex.on_inbox_message({"from": INBOX_FROM, "text": envelope.seal_response(good, resp_pk),
+                             "reply_to_message": {"message_id": 101}})
         return await asyncio.wait_for(task, 1)
 
     assert asyncio.run(scenario()) == {"n": 7}

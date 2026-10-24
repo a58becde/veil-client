@@ -605,7 +605,7 @@ class UI:
         """Понятное объяснение ошибки сервера вместо кода (коды пользователю не показываются)."""
         if e.code == "E_TOO_LONG":
             return self.T("text.too_long", n=e.overflow)
-        key = f"error.{e.code}"
+        key = "error.E_PENDING" if e.accepted else f"error.{e.code}"  # принято сервером: не «не выполнено»
         if self.T.has(key):
             return self.T(key, wait=human_wait(e.retry_after))
         log.warning("server error without explanation: %s", e.code)  # код — только в журнал, не владельцу

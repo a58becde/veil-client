@@ -431,7 +431,9 @@ class Core:
         signed = not d.anonymous and self.nick() is not None
         if signed:
             await self.sync_device()
-        mode, key = ("identity", self.device.dev_sk) if signed else ("ephemeral", SigningKey.generate())
+        # Одноразовый ключ анонимного конверта и секрет resp_pk выводятся из secret: журнал их не хранит (spec/05).
+        eph_sk, resp_sk = keys.journal_keys(secret)
+        mode, key = ("identity", self.device.dev_sk) if signed else ("ephemeral", eph_sk)
         content = contentmod.describe(plan.shown) if plan.shown else None  # файл: описание — после загрузки
         kind = privacy.kind(d.messages)
         ids: list[str] = []
@@ -447,12 +449,12 @@ class Core:
 
         async def attempt() -> dict:
             return await self._paid("post.create", mode, key, body=body, content=content, deliver=plan.deliver,
-                                    journal=journal)
+                                    journal=journal, resp_sk=resp_sk)
         try:
             try:
                 res = await attempt()
             except ServerError as e:
-                if e.code != "E_DEVICE" or not signed:
+                if e.code != "E_DEVICE" or not signed or e.accepted:  # принято раньше: второй пост недопустим
                     raise
                 await self.sync_device(force=True)  # база сервера откатилась или устройство отозвано
                 res = await attempt()
@@ -486,7 +488,9 @@ class Core:
                 out.append(("lost", None))
                 continue
             try:
-                res = await self.exchange.resume(state, None if state.get("auth_seed") else self.device.dev_sk)
+                eph_sk, resp_sk = keys.journal_keys(secret)
+                res = await self.exchange.resume(state, self.device.dev_sk if state.get("auth_mode") == "identity"
+                                                 else eph_sk, resp_sk)
             except ServerError as e:
                 if e.code == "E_PENDING" or e.accepted:
                     continue
@@ -634,7 +638,12 @@ class Core:
         либо попытка пометить вас отдельным ключом (spec/03). Флаг issuer_mismatch видит интерфейс."""
         doc = await self.exchange.request("keys.get", "ephemeral", SigningKey.generate())
         pinned = b64.enc(self.exchange.server_sig_pk)
-        self.keys_doc = keysdoc.verify(doc, pinned)
+        new_doc = keysdoc.verify(doc, pinned)
+        new_bots = keysdoc.inbox_bots(new_doc)  # испорченный список — KeysError до сохранения
+        if not new_bots and keysdoc.inbox_bots(self.keys_doc):
+            # Откат на @username: имя может сменить владельца (spec/02, 04)
+            raise keysdoc.KeysError("keys.get без inbox_bots, а они уже были")
+        self.keys_doc = new_doc
         self.store.put("keys_doc", self.keys_doc)
         try:
             offered = keysdoc.issuer_key(self.keys_doc)

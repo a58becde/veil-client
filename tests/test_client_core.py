@@ -103,6 +103,9 @@ def test_lookup_chain_rejects_forgeries():
         keys.verify_lookup_match(m, "zzzz", now=now, tag_fn=lambda pk: "abcdef")
 
 
+INBOX_FROM = {"is_bot": True, "username": "inbox"}  # отправитель сообщений приёмного бота ("@inbox")
+
+
 class FakeBot:
     def __init__(self):
         self.sent = []
@@ -125,12 +128,12 @@ def test_exchange_multipart_and_forgery():
         resp_pk = envelope.b64.dec(env["resp_pk"])
         # Подделка (чужая подпись) игнорируется, настоящий ответ из нескольких частей принимается.
         fake = envelope.seal_response(envelope.build_response(env["id"], SigningKey.generate(), result={}), resp_pk)
-        ex.on_inbox_message({"text": fake, "reply_to_message": {"message_id": 101}})
+        ex.on_inbox_message({"from": INBOX_FROM, "text": fake, "reply_to_message": {"message_id": 101}})
         big = envelope.build_response(env["id"], server, result={"posts": ["я" * 100] * 50})
         parts = envelope.split_response(envelope.seal_response(big, resp_pk))
         assert len(parts) > 1
         for p in reversed(parts):
-            ex.on_inbox_message({"text": p, "reply_to_message": {"message_id": 101}})
+            ex.on_inbox_message({"from": INBOX_FROM, "text": p, "reply_to_message": {"message_id": 101}})
         return await task
 
     assert len(asyncio.run(scenario())["posts"]) == 50
@@ -147,7 +150,7 @@ def test_exchange_error_and_hint():
         await asyncio.sleep(0.01)
         env = envelope.open_envelope(bot.sent[-1], inbox)
         mid = 100 + len(bot.sent)
-        ex.on_inbox_message({"text": reply(env), "reply_to_message": {"message_id": mid}})
+        ex.on_inbox_message({"from": INBOX_FROM, "text": reply(env), "reply_to_message": {"message_id": mid}})
         return await task
 
     err = lambda env: envelope.seal_response(envelope.build_response(  # noqa: E731
@@ -197,7 +200,8 @@ def switch_exchange(bot, ids=(111, 222)):
         env = envelope.open_envelope(text, inbox)
         resp = envelope.seal_response(envelope.build_response(env["id"], server, result=result),
                                       envelope.b64.dec(env["resp_pk"]))
-        ex.on_inbox_message({"chat": {"id": chat}, "text": resp, "reply_to_message": {"message_id": mid}})
+        ex.on_inbox_message({"from": {"is_bot": True, "id": chat}, "chat": {"id": chat}, "text": resp,
+                             "reply_to_message": {"message_id": mid}})
     return ex, answer
 
 
@@ -264,7 +268,8 @@ def test_resume_goes_to_the_same_inbox_bot():
     assert ex.inbox == 222
 
     async def again():
-        task = asyncio.create_task(ex.resume(states[0]))
+        # журнал без ключей: вызывающий выводит их из post_secret (spec/05)
+        task = asyncio.create_task(ex.resume(states[0], SigningKey.generate(), PrivateKey.generate()))
         await asyncio.sleep(0.01)
         answer(111, 102, bot.sent[-1][1], {"n": 5})
         return await task

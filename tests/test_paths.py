@@ -80,6 +80,9 @@ class Wire:
         return {"message_id": 100 + len(self.sent)}
 
 
+INBOX_FROM = {"is_bot": True, "username": "inbox_bot"}  # отправитель сообщений приёмного бота ("@Inbox_Bot")
+
+
 def make_ex(ids=None):
     inbox, server = PrivateKey.generate(), SigningKey.generate()
     w = Wire()
@@ -92,7 +95,7 @@ def reply_to(ex, w, inbox, server, result=None, error=None, mid=None):
     text = w.sent[-1][1]
     env = envelope.open_envelope(text, inbox, max_plain=envelope.MAX_DOC_PLAINTEXT)  # конверт мог уйти документом
     resp = envelope.build_response(env["id"], server, result=result, error=error)
-    ex.on_inbox_message({"text": envelope.seal_response(resp, b64.dec(env["resp_pk"])),
+    ex.on_inbox_message({"from": INBOX_FROM, "text": envelope.seal_response(resp, b64.dec(env["resp_pk"])),
                          "reply_to_message": {"message_id": mid or 100 + len(w.sent)}})
     return env
 
@@ -151,9 +154,9 @@ def test_attachments_hint_and_forgery():
     async def go():
         t = asyncio.create_task(ex.request("hidden.file", "ephemeral", SigningKey.generate(), attachments=got))
         await asyncio.sleep(0.01)
-        ex.on_inbox_message({"document": {"file_id": "D"}, "reply_to_message": {"message_id": 101}})
-        ex.on_inbox_message({"text": "просто текст", "reply_to_message": {"message_id": 101}})
-        ex.on_inbox_message({"text": "VEIL1R x", "reply_to_message": {"message_id": 999}})  # чужой
+        ex.on_inbox_message({"from": INBOX_FROM, "document": {"file_id": "D"}, "reply_to_message": {"message_id": 101}})
+        ex.on_inbox_message({"from": INBOX_FROM, "text": "просто текст", "reply_to_message": {"message_id": 101}})
+        ex.on_inbox_message({"from": INBOX_FROM, "text": "VEIL1R x", "reply_to_message": {"message_id": 999}})  # чужой
         reply_to(ex, w, inbox, server, result={}, mid=101)
         return await t
     asyncio.run(go())
@@ -162,7 +165,8 @@ def test_attachments_hint_and_forgery():
     async def hint():
         t = asyncio.create_task(ex.request("ping", "ephemeral", SigningKey.generate()))
         await asyncio.sleep(0.01)
-        ex.on_inbox_message({"text": "VEIL1E E_CLOCK", "reply_to_message": {"message_id": 100 + len(w.sent)}})
+        ex.on_inbox_message({"from": INBOX_FROM, "text": "VEIL1E E_CLOCK",
+                             "reply_to_message": {"message_id": 100 + len(w.sent)}})
         return await t
     with pytest.raises(ServerError) as e:
         asyncio.run(hint())
@@ -256,10 +260,10 @@ def test_private_payload_bound_to_post(tmp_path):
 
 def test_resume_pending_paths(tmp_path):
     e = Env(tmp_path)
-    e.store.save_pending_post("a", bytes(32), "text", {"id": "a", "auth_seed": "x"})
-    e.store.save_pending_post("b", bytes(32), "text", {"id": "b", "auth_seed": "x"})
+    e.store.save_pending_post("a", bytes(32), "text", {"id": "a", "auth_mode": "ephemeral"})
+    e.store.save_pending_post("b", bytes(32), "text", {"id": "b", "auth_mode": "ephemeral"})
 
-    async def fail_then(state, auth_key=None):
+    async def fail_then(state, auth_key=None, resp_sk=None):
         if state["id"] == "a":
             raise ServerError("E_PENDING")
         raise ServerError("E_TOO_LONG")
@@ -267,7 +271,7 @@ def test_resume_pending_paths(tmp_path):
     assert asyncio.run(e.core.resume_pending()) == [("failed", None)]
     assert [p[0] for p in e.store.pending_posts()] == ["a"]
 
-    async def silent(state, auth_key=None):
+    async def silent(state, auth_key=None, resp_sk=None):
         raise NoReplyError("x")
     e.server.resume = silent
     assert asyncio.run(e.core.resume_pending()) == []
