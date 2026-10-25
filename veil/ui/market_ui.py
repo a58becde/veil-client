@@ -13,14 +13,10 @@ import logging
 import shutil
 from typing import TYPE_CHECKING
 
-from nacl.signing import SigningKey
-
 from veil import market as mk
 from veil import plugin_manifest as pm
 from veil import plugins as plug
-from veil.core.protocol import b64
-from veil.core.transport.exchange import NoReplyError, ServerError
-from veil.core.transport.telegram import keyboard
+from veil.core import api
 
 if TYPE_CHECKING:
     from veil.ui.bot import UI
@@ -84,7 +80,7 @@ class MarketUI:
               ([(f"{page + 2} →", f"mk:p:{page + 1}")] if page + 1 < pages else [])
         if nav:
             rows.append(nav)
-        markup = keyboard(rows)
+        markup = api.keyboard(rows)
         if msg:
             await self._edit(msg, text, markup)
         else:
@@ -106,7 +102,7 @@ class MarketUI:
         inst = self.market.installed().get(id_)
         if e is None and inst:
             await self._edit(msg, self.tr("text.market_delisted_card", name=id_, version=inst["version"]),
-                             keyboard([[(self.tr("button.market_remove"), f"mk:r:{id_}")]]))
+                             api.keyboard([[(self.tr("button.market_remove"), f"mk:r:{id_}")]]))
             return
         if e is None:
             await self._edit(msg, self.tr("text.market_gone"))
@@ -130,7 +126,7 @@ class MarketUI:
         elif self.market.index.shop:
             rows.append([(self.tr("button.market_buy", n=e.price_stars), f"mk:b:{id_}")])
         rows.append([(self.tr("button.market_back"), "mk:p:0")])
-        await self._edit(msg, text, keyboard(rows))
+        await self._edit(msg, text, api.keyboard(rows))
 
     # --- установка и обновление ---
     async def fetch(self, id_: str, msg: dict) -> None:
@@ -154,7 +150,7 @@ class MarketUI:
         self.staged[id_] = (pdir, m, e)
         allow = (self.tr("button.plugin_allow"), f"mk:ok:{id_}:{e.sha256[:12]}")
         deny = (self.tr("button.plugin_deny"), f"mk:no:{id_}")
-        await self._edit(msg, self.ui.grant_text(m), keyboard([[allow, deny]]))
+        await self._edit(msg, self.ui.grant_text(m), api.keyboard([[allow, deny]]))
 
     # --- покупка ---
     async def buy(self, id_: str, msg: dict) -> None:
@@ -193,16 +189,13 @@ class MarketUI:
 
     async def _license_key(self, e: mk.Entry) -> bytes:
         """Ключ версии платного пакета: активация или ключ обновления на сервере — анонимным конвертом."""
-        async def request(op: str, body: dict) -> dict:
-            return await self.ui.core.exchange.request(op, "ephemeral", SigningKey.generate(), body=body)
-        server_pk = b64.dec(self.ui.core.store.get("pinned_server_sig") or "")
         try:
-            return await self.market.license_key(request, e, server_pk)
-        except ServerError as err:
+            return await self.market.license_key(self.ui.core.market_request, e, self.ui.core.server_sig_pk())
+        except api.ServerError as err:
             known = {"E_TOKEN_SPENT": "text.market_license_spent", "E_TOKEN_INVALID": "text.market_license_rejected",
                      "E_UNSUPPORTED": "text.market_server_off", "E_NOT_FOUND": "text.market_no_version_key"}
             raise mk.MarketError(self.tr(known[err.code]) if err.code in known else self.ui.explain(err)) from None
-        except NoReplyError:
+        except api.NoReplyError:
             raise mk.MarketError(self.tr("text.no_reply")) from None
 
     async def confirm(self, id_: str, sha12: str, msg: dict) -> None:
@@ -242,7 +235,7 @@ class MarketUI:
     async def ask_remove(self, id_: str, msg: dict) -> None:
         name = self._name(id_)
         await self._edit(msg, self.tr("text.market_remove_ask", name=name),
-                         keyboard([[(self.tr("button.market_remove_yes"), f"mk:rok:{id_}"),
+                         api.keyboard([[(self.tr("button.market_remove_yes"), f"mk:rok:{id_}"),
                                     (self.tr("button.cancel"), "mk:p:0")]]))
 
     async def remove(self, id_: str, msg: dict | None = None, reason: str = "") -> None:

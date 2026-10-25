@@ -5,6 +5,7 @@ import time
 
 from harness import Env
 
+from veil import pool
 from veil.core.transport.telegram import TelegramError
 
 
@@ -120,7 +121,7 @@ def test_import_file_delete_ok_leaves_no_schedule(tmp_path):
 
 
 def test_words_confirmed_but_delete_failed_keeps_record_and_says_gone(tmp_path):
-    e = Env(tmp_path, pool={"identity": "words_once"})
+    e = Env(tmp_path, pool={"identity": "words_once", "create_identity": pool.create_identity})
     e.store.put("words_msg", 77)
     e.store.put("wipe_at", [[e.ui.owner, 77, int(time.time()) + 3000]])
     scripted(e, {77: net_error()})
@@ -135,7 +136,7 @@ def test_words_confirmed_but_delete_failed_keeps_record_and_says_gone(tmp_path):
 
 
 def test_words_confirmed_and_deleted_drops_record(tmp_path):
-    e = Env(tmp_path, pool={"identity": "words_once"})
+    e = Env(tmp_path, pool={"identity": "words_once", "create_identity": pool.create_identity})
     e.store.put("words_msg", 77)
     e.store.put("wipe_at", [[e.ui.owner, 77, int(time.time()) + 3000]])
     scripted(e, {})

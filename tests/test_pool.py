@@ -46,7 +46,7 @@ def _ui(tmp_path):
     ui = uibot.UI.__new__(uibot.UI)
     ui.bot, ui.owner, ui.config_name, ui.tasks = _Bot(), 1, "pool.toml", set()
     ui.T = uibot.Texts(ROOT / "locales" / "ru.toml", {})
-    ui.pool = {"identity": "words_once"}
+    ui.pool = {"identity": "words_once", "create_identity": pool.create_identity}
     ui.cfg = {"privacy": {"random_delay_seconds": [15, 90]}}
     ui.plugins = uibot.plug.Registry()  # UI собран без __init__: плагинов нет
     class Core:

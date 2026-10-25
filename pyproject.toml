@@ -36,7 +36,7 @@ testpaths = ["tests"]
 line-length = 120   # PEP 8 разрешает договориться о длине строки; в проекте — 120
 
 [tool.ruff.lint]
-# Те же правила запускает tools/security_check.sh. E, W, N, I — PEP 8: стиль, пробелы, имена, порядок импортов.
+# Те же правила запускают проверки проекта. E, W, N, I — PEP 8: стиль, пробелы, имена, порядок импортов.
 # RUF006 — задача asyncio без ссылки (её может собрать сборщик мусора), RUF021 — and/or без скобок,
 # PLC0415 — импорт внутри функции только с пометкой причины (noqa).
 select = ["F", "E", "W", "N", "I", "B", "S", "BLE", "RUF006", "RUF021", "PLC0415"]
@@ -49,3 +49,97 @@ ignore = ["S101", "B905", "BLE001", "S311", "S105", "S107"]
 # Код внутри движка плагинов: любая правка меняет сборку и её SHA-256, зашитый в клиент (релиз engine-1).
 # Стиль PEP 8 здесь не проверяется до следующего релиза движка — менять его ради стиля незачем.
 "engine/guest/**" = ["E", "W", "N", "I"]
+
+# Границы модулей (docs/ARCHITECTURE.md, «Границы модулей»). Проверка: lint-imports --no-cache, в воротах.
+# Правила — разрешающие: новый модуль или связь сначала вносятся сюда и в документ.
+[tool.importlinter]
+root_package = "veil"
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+id = "layers"
+name = "Слои бота: вызовы только сверху вниз"
+type = "layers"
+layers = [
+  "veil.pool",
+  "veil.__main__ | veil.plugin_dev | veil.market_tool",
+  "veil.ui | veil.cli",
+  "veil.market | veil.plugin_engine",
+  "veil.plugins",
+  "veil.plugin_manifest | veil.plugin_host",
+  "veil.sandbox | veil.seccomp",
+  "veil.core",
+]
+
+[[tool.importlinter.contracts]]
+id = "core-layers"
+name = "Слои ядра: протокол и криптография внизу, api наверху"
+type = "layers"
+containers = ["veil.core"]
+layers = ["api", "export | privacy | transport | store", "wallet | identity", "crypto", "protocol"]
+
+[[tool.importlinter.contracts]]
+id = "ui-api"
+name = "Интерфейс — только через veil.core.api и veil.core.export"
+type = "forbidden"
+source_modules = ["veil.ui"]
+forbidden_modules = ["veil.core.protocol", "veil.core.crypto", "veil.core.identity", "veil.core.store",
+                     "veil.core.transport", "veil.core.wallet", "veil.core.privacy", "nacl", "httpx", "sqlite3"]
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+id = "no-words"
+name = "12 слов не попадают в код бота"
+type = "forbidden"
+source_modules = ["veil.ui", "veil.core.api", "veil.core.export", "veil.plugins", "veil.plugin_engine",
+                  "veil.plugin_host", "veil.plugin_manifest", "veil.market"]
+forbidden_modules = ["veil.core.crypto.bip39", "veil.cli", "mnemonic"]
+
+[[tool.importlinter.contracts]]
+id = "plugins-no-core"
+name = "Плагины и движок не видят ядро"
+type = "forbidden"
+source_modules = ["veil.plugins", "veil.plugin_engine", "veil.plugin_manifest", "veil.plugin_host",
+                  "veil.sandbox", "veil.seccomp"]
+forbidden_modules = ["veil.core", "veil.ui", "nacl", "sqlite3"]
+
+[[tool.importlinter.contracts]]
+id = "host-pure"
+name = "Процесс-хост движка: без сети и без кода бота"
+type = "forbidden"
+source_modules = ["veil.plugin_host", "veil.sandbox", "veil.seccomp"]
+forbidden_modules = ["veil.plugins", "veil.plugin_engine", "veil.plugin_manifest", "veil.market", "httpx"]
+
+[[tool.importlinter.contracts]]
+id = "host-entry"
+name = "Процесс-хост и wasmtime — только через plugin_engine"
+type = "forbidden"
+source_modules = ["veil.core", "veil.ui", "veil.cli", "veil.plugins", "veil.plugin_manifest", "veil.market",
+                  "veil.market_tool", "veil.pool", "veil.__main__", "veil.plugin_dev", "veil.sandbox", "veil.seccomp"]
+forbidden_modules = ["veil.plugin_host", "wasmtime"]
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+id = "market-pure"
+name = "Маркет: из ядра только протокол и криптография"
+type = "forbidden"
+source_modules = ["veil.market", "veil.market_tool"]
+forbidden_modules = ["veil.core.api", "veil.core.export", "veil.core.privacy", "veil.core.store",
+                     "veil.core.transport", "veil.core.wallet", "veil.core.identity", "sqlite3"]
+
+[[tool.importlinter.contracts]]
+id = "core-io"
+name = "Ядро: Telegram — только transport"
+type = "forbidden"
+source_modules = ["veil.core.protocol", "veil.core.crypto", "veil.core.identity", "veil.core.wallet",
+                  "veil.core.store", "veil.core.privacy", "veil.core.export"]
+forbidden_modules = ["httpx", "wasmtime"]
+
+[[tool.importlinter.contracts]]
+id = "sqlite-store"
+name = "sqlite3 — только veil.core.store"
+type = "forbidden"
+source_modules = ["veil.core.protocol", "veil.core.crypto", "veil.core.identity", "veil.core.wallet",
+                  "veil.core.transport", "veil.core.privacy", "veil.core.export", "veil.core.api"]
+forbidden_modules = ["sqlite3"]
+allow_indirect_imports = true

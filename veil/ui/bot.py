@@ -18,14 +18,8 @@ from pathlib import Path
 from veil import plugin_engine
 from veil import plugin_manifest as pm
 from veil import plugins as plug
-from veil.core import api, privacy
+from veil.core import api
 from veil.core import export as ex
-from veil.core.crypto.keys import KeyMismatchError, display_name
-from veil.core.identity.nick import NickError
-from veil.core.protocol import b64
-from veil.core.transport.exchange import NoReplyError, ServerError
-from veil.core.transport.telegram import Bot, TelegramError, keyboard, safe_filename, safe_mime
-from veil.core.wallet.issue import IssueFormatError
 from veil.ui.market_ui import MarketUI
 
 log = logging.getLogger("veil.ui")
@@ -85,7 +79,7 @@ def draft_urls(msgs: list[dict]) -> list[str]:
     """Ссылки черновика (url и text_link из текста и подписей) — для кнопок плагинов on_link."""
     out = []
     for m in msgs:
-        text, ents = privacy.text_of(m)
+        text, ents = api.text_of(m)
         raw = text.encode("utf-16-le")
         for e in ents or []:
             if e.get("type") == "text_link" and e.get("url"):
@@ -98,8 +92,8 @@ def draft_urls(msgs: list[dict]) -> list[str]:
 def outgoing(d: api.Draft) -> plug.Outgoing:
     """Черновик глазами плагина (before_send): вид, текст, режим — только чтение."""
     msgs = sorted(d.messages, key=lambda m: m["message_id"])
-    text = next((t for t, _ in map(privacy.text_of, msgs) if t), "")
-    return plug.Outgoing(privacy.kind(msgs), text, d.anonymous, d.hide, d.reply_to, d.to_label)
+    text = next((t for t, _ in map(api.text_of, msgs) if t), "")
+    return plug.Outgoing(api.kind(msgs), text, d.anonymous, d.hide, d.reply_to, d.to_label)
 
 
 class PluginHost:
@@ -162,7 +156,7 @@ class PluginHost:
 
 
 class UI:
-    def __init__(self, core: api.Core, bot: Bot, texts: Texts, cfg: dict):
+    def __init__(self, core: api.Core, bot: api.Bot, texts: Texts, cfg: dict):
         self.core, self.bot, self.T, self.cfg = core, bot, texts, cfg
         # Владелец: из конфига или привязанный кодом при первом запуске (см. claim_code).
         self.owner = cfg["telegram"].get("owner_id") or core.store.get("owner_id") or 0
@@ -205,7 +199,7 @@ class UI:
         try:
             await self.core.refresh_keys()
             self.core.store.put("b2b_error", None)
-        except TelegramError as e:
+        except api.TelegramError as e:
             log.warning("cannot reach the server bot: %s", e)
             self.core.store.put("b2b_error", True)
         except Exception as e:
@@ -242,7 +236,7 @@ class UI:
         return text
 
     async def _ask_grant(self, p: plug.Loaded) -> None:
-        await self._say(self.grant_text(p.manifest), keyboard([[(self.T("button.plugin_allow"), f"pg:{p.name}:ok"),
+        await self._say(self.grant_text(p.manifest), api.keyboard([[(self.T("button.plugin_allow"), f"pg:{p.name}:ok"),
                                                                  (self.T("button.plugin_deny"), f"pg:{p.name}:no")]]))
 
     async def _grant(self, name: str, ok: bool, msg: dict) -> None:
@@ -274,7 +268,7 @@ class UI:
         cmds = [(c, self.T(f"commands.{c}")) for c in base] + self.plugins.menu()
         try:
             await self.bot.set_commands(cmds)
-        except TelegramError as e:
+        except api.TelegramError as e:
             log.warning("setMyCommands: %s", e)
 
     async def _sync_identity(self, quiet: bool = False) -> None:
@@ -290,7 +284,7 @@ class UI:
             problem = "text.device_revoked"
         except api.OtherBotError:
             problem = "text.other_bot"
-        except (ServerError, NoReplyError, TelegramError) as e:
+        except (api.ServerError, api.NoReplyError, api.TelegramError) as e:
             log.info("identity sync: %s", e)
             return
         if self.core.store.get("identity_problem") != problem or not quiet:
@@ -397,7 +391,7 @@ class UI:
         if self.split_buf is not None and text and not text.startswith("/") and "forward_origin" not in m:
             self.split_buf.append(m)
             return True
-        if privacy.utf16(text) >= SPLIT_THRESHOLD and not text.startswith("/"):
+        if api.utf16(text) >= SPLIT_THRESHOLD and not text.startswith("/"):
             self.split_buf = [m]
             self._spawn(self._split_done())
             return True
@@ -517,7 +511,7 @@ class UI:
         elif cmd == "/import":
             await self._import_start()
         elif cmd == "/leave" and self.pool:
-            await self._say(self.T("text.pool_leave_ask"), keyboard([[(self.T("button.pool_leave"), "pool:leave"),
+            await self._say(self.T("text.pool_leave_ask"), api.keyboard([[(self.T("button.pool_leave"), "pool:leave"),
                                                                      (self.T("button.cancel"), "pool:stay")]]))
         elif cmd == "/market":
             await self.market_ui.open()
@@ -542,7 +536,7 @@ class UI:
                 rows.append([(tr("button.anon_on") if d.anonymous else tr("button.anon_off"), f"d:{i}:anon")])
             labels = {"links": (tr("button.hide_links"), "hl"), "message": (tr("button.hide_message"), "hm"),
                       "to": (tr("button.hide_to"), "hto")}
-            hide = [(labels[m][0], f"d:{i}:{labels[m][1]}") for m in privacy.modes(d.messages) if m and m != d.hide]
+            hide = [(labels[m][0], f"d:{i}:{labels[m][1]}") for m in api.modes(d.messages) if m and m != d.hide]
             if d.hide:
                 hide.append((tr("button.hide_off"), f"d:{i}:h0"))
             if hide:
@@ -550,7 +544,7 @@ class UI:
             for j, (_, _, label, _) in enumerate(self.plugins.link_buttons(draft_urls(d.messages))):
                 rows.append([(f"🧩 {label}", f"pl:{i}:{j}")])
         rows.append([(tr("button.cancel"), f"d:{i}:x")])
-        return keyboard(rows)
+        return api.keyboard(rows)
 
     def _draft_text(self, d: api.Draft, problems: list[tuple[str, dict]] = ()) -> str:
         tr = self.T
@@ -588,7 +582,7 @@ class UI:
             await self._run(lambda: self.core.edit_post(api.Draft(self.owner, msgs, mode=what, target=n)),
                             lambda r: self.T("text.edited", n=n, left=r.get("edits_left", "?")), name="post.edit")
 
-    def explain(self, e: ServerError) -> str:
+    def explain(self, e: api.ServerError) -> str:
         """Понятное объяснение ошибки сервера вместо кода (коды пользователю не показываются)."""
         if e.code == "E_TOO_LONG":
             return self.T("text.too_long", n=e.overflow)
@@ -645,7 +639,7 @@ class UI:
             await report(ok_text(res))
             return None
         except api.NoTokensError:
-            await report(self.T("text.no_tokens"), keyboard([[(self.T("button.top_up"), "tok:req")]]))
+            await report(self.T("text.no_tokens"), api.keyboard([[(self.T("button.top_up"), "tok:req")]]))
             return "no_tokens"
         except api.PostQueuedError:
             await report(self.T("text.post_queued"))
@@ -653,7 +647,7 @@ class UI:
         except api.NotMineError:
             await report(self.T("text.not_mine"))
             return "not_mine"
-        except ServerError as e:
+        except api.ServerError as e:
             log.info("server refused: %s", e.code)
             if e.hint and e.code == "E_DECRYPT":
                 try:
@@ -662,10 +656,10 @@ class UI:
                     log.info("refresh keys failed: %s", type(err).__name__)
             await report(self.explain(e))
             return e.code
-        except NoReplyError:
+        except api.NoReplyError:
             await report(self.T("text.no_reply"))
             return "no_reply"
-        except NickError as e:
+        except api.NickError as e:
             await report(self.T("text.nick_invalid", err=e))
             return "nick_invalid"
         except api.NoIdentityError:
@@ -677,7 +671,7 @@ class UI:
         except api.OtherBotError:
             await report(self.T("text.other_bot", config=self.config_name))
             return "other_bot"
-        except TelegramError as e:
+        except api.TelegramError as e:
             if e.code != 429:
                 log.exception("operation failed")
                 await report(self.T("text.internal"))
@@ -706,29 +700,30 @@ class UI:
         nick, tag = m.group(1), m.group(2).lower()
         try:
             match = await self.core.find_recipient(nick, tag)
-        except ServerError as e:
+        except api.ServerError as e:
             await self._say(self.T("text.recipient_not_found") if e.code in ("E_NOT_FOUND", "E_NICK_INVALID")
                             else self.explain(e))
             return
-        except KeyMismatchError:
+        except api.KeyMismatchError:
             await self._say(self.T("text.recipient_unverified"))
             return
         except api.AmbiguousError:
             await self._say(self.T("text.recipient_ambiguous"))
             return
-        except NickError:
+        except api.NickError:
             await self._say(self.T("text.recipient_bad"))
             return
-        except NoReplyError:
+        except api.NoReplyError:
             await self._say(self.T("text.no_reply"))
             return
-        label = display_name(match["nick"], tag)
+        label = api.display_name(match["nick"], tag)
         known = self.core.known_recipient(label)
         state = dict(state, label=label, enc=match["enc_pk"], id=match["id_pk"], seq=match.get("seq", 0))
         if known and known != match["id_pk"]:
             self.core.store.put("pending_recipient", state)
             await self._say(self.T("text.recipient_changed", who=label),
-                            keyboard([[(self.T("button.trust_new"), "tn:yes"), (self.T("button.cancel"), "tn:no")]]))
+                            api.keyboard([[(self.T("button.trust_new"), "tn:yes"),
+                                           (self.T("button.cancel"), "tn:no")]]))
             return
         await self._apply_recipient(state)
 
@@ -750,13 +745,14 @@ class UI:
     async def _post_menu(self, n: int) -> None:
         tr = self.T
         if self.core.store.post_secret(n):
-            mk = keyboard([[(tr("button.upd"), f"p:{n}:append"), (tr("button.fix"), f"p:{n}:replace"),
+            mk = api.keyboard([[(tr("button.upd"), f"p:{n}:append"), (tr("button.fix"), f"p:{n}:replace"),
                             (tr("button.delete"), f"p:{n}:del")],
                            [(tr("button.reply"), f"p:{n}:reply"), (tr("button.cancel"), f"p:{n}:none")]])
             await self._say(tr("text.post_actions_mine", n=n), mk)
         else:
             await self._say(tr("text.post_actions_other", n=n),
-                            keyboard([[(tr("button.reply"), f"p:{n}:reply"), (tr("button.cancel"), f"p:{n}:none")]]))
+                            api.keyboard([[(tr("button.reply"), f"p:{n}:reply"),
+                                           (tr("button.cancel"), f"p:{n}:none")]]))
 
     # --- интерфейс плагинов: их сообщения с кнопками, вопросы, кнопки у ссылок, меню ---
     def plugin_name(self, plugin: str) -> str:
@@ -774,7 +770,7 @@ class UI:
             for text, _, _ in row:
                 out[-1].append((text, f"pb:{token}:{k}"))
                 k += 1
-        return keyboard(out) if out else None
+        return api.keyboard(out) if out else None
 
     def plugin_ui_save(self, token: str, plugin: str, mid: int, rows: list) -> None:
         table = dict(self.core.store.get("plugin_ui") or {})
@@ -825,7 +821,7 @@ class UI:
         lines = [f"• {self.plugin_name(p.name)} {p.manifest.version}" for p in self.plugins.loaded]
         if self.market_ui.market:
             rows.append([(self.T("button.market"), "mk:p:0")])
-        await self._say(self.T("text.plugins_menu", lines="\n".join(lines)), keyboard(rows) if rows else None)
+        await self._say(self.T("text.plugins_menu", lines="\n".join(lines)), api.keyboard(rows) if rows else None)
 
     # --- ник кнопками: команда из меню уходит без аргумента ---
     async def _nick_menu(self) -> None:
@@ -834,7 +830,7 @@ class UI:
         if nick:
             rows[0].append((self.T("button.nick_remove"), "nk:rm"))
         text = self.T("text.nick_current", nick=nick) if nick else self.T("text.nick_none")
-        await self._say(text, keyboard(rows))
+        await self._say(text, api.keyboard(rows))
 
     async def _nick_action(self, data: str, msg: dict) -> None:
         if data == "nk:set":
@@ -843,7 +839,7 @@ class UI:
                 self.core.store.put("await", {"what": "nick", "ask": ask["message_id"]})
         elif data == "nk:rm":  # убрать ник — токен и сутки до следующей смены: сначала спросить
             await self.bot.edit(msg["chat"]["id"], msg["message_id"], self.T("text.nick_remove_ask"),
-                                markup=keyboard([[(self.T("button.nick_remove_yes"), "nk:rm!"),
+                                markup=api.keyboard([[(self.T("button.nick_remove_yes"), "nk:rm!"),
                                                   (self.T("button.cancel"), "aw:x")]]))
         else:
             await self.bot.edit(msg["chat"]["id"], msg["message_id"], self.T("text.nick_removing"))
@@ -907,7 +903,7 @@ class UI:
                 await self._apply_recipient(pending)
 
     def _cancel_kb(self) -> dict:
-        return keyboard([[(self.T("button.cancel"), "aw:x")]])
+        return api.keyboard([[(self.T("button.cancel"), "aw:x")]])
 
     async def _cancel_wait(self, msg: dict) -> None:
         """«Отмена» под вопросом или выбором. Ожидание (ответ, правка, «Кому?», файл импорта) снимается, только если
@@ -952,7 +948,7 @@ class UI:
             rows.append([(self.T("button.pool_identity"), "id:new")])
         if self.plugins.loaded:
             rows.append([(self.T("button.plugins"), "pc:plugins")])
-        return keyboard(rows) if rows else None
+        return api.keyboard(rows) if rows else None
 
     def blocker(self) -> tuple[str, dict | None] | None:
         """Почему пост сейчас не уйдёт — до случайной задержки, чтобы владелец не ждал её впустую."""
@@ -961,7 +957,7 @@ class UI:
         if not self.core.store.token_counts().get(api.today(), 0):
             later = any(c for d, c in self.core.store.token_counts().items() if d > api.today())
             return (self.T("text.no_tokens_before") + ("\n\n" + self.T("text.tokens_none_today") if later else ""),
-                    keyboard([[(self.T("button.top_up"), "tok:req")]]))
+                    api.keyboard([[(self.T("button.top_up"), "tok:req")]]))
         return None
 
     # --- экспорт и импорт (docs/EXPORT.md): через чат — только на ключ получателя, пароль в Telegram не вводится ---
@@ -979,12 +975,12 @@ class UI:
         except ex.ExportError as e:
             await self._say(self.T("text.export_failed", err=e))
             return
-        self.core.store.put("export_pending", {"pk": b64.enc(pk), "at": int(time.time())})
+        self.core.store.put("export_pending", {"pk": api.b64enc(pk), "at": int(time.time())})
         what = self.T("text.export_identity") if bundle.get("device") else self.T("text.export_no_identity")
         await self._say(self.T("text.export_confirm", identity=what, tokens=len(bundle["tokens"]),
                                posts=len(bundle["posts"]),
                                contacts=len(bundle["contacts"])),
-                        keyboard([[(self.T("button.export_yes"), "ex:ok"), (self.T("button.cancel"), "ex:no")]]))
+                        api.keyboard([[(self.T("button.export_yes"), "ex:ok"), (self.T("button.cancel"), "ex:no")]]))
         del bundle
 
     async def _export_confirmed(self, msg: dict) -> None:
@@ -995,7 +991,7 @@ class UI:
             return
         try:
             bundle = ex.collect(self.core.store, int(self.core.store.get("bot_id") or 0), self.cfg)
-            data = ex.seal_recipient(bundle, b64.dec(pending["pk"]))
+            data = ex.seal_recipient(bundle, api.b64dec(pending["pk"]))
         except ex.ExportError as e:
             await self.bot.edit(msg["chat"]["id"], msg["message_id"], self.T("text.export_failed", err=e))
             return
@@ -1009,7 +1005,7 @@ class UI:
 
     async def _import_start(self) -> None:
         text, sk = ex.new_import_key()
-        self.core.store.put("import_sk", b64.enc(sk))
+        self.core.store.put("import_sk", api.b64enc(sk))
         ask = await self._say(self.T("text.import_ready"), self._cancel_kb())
         self.core.store.put("await", {"what": "import", "ask": ask["message_id"] if ask else None})
         await self._say(text)  # отдельным сообщением — удобно скопировать целиком
@@ -1022,7 +1018,7 @@ class UI:
             if int(doc.get("file_size") or 0) > ex.MAX_FILE:
                 raise ex.ExportError("файл больше 8 МиБ")
             data = await self.bot.download(doc["file_id"], ex.MAX_FILE)
-            bundle = ex.open_file(data, recipient_sk=b64.dec(sk) if sk else None)
+            bundle = ex.open_file(data, recipient_sk=api.b64dec(sk) if sk else None)
             bot_id = int(self.core.store.get("bot_id") or 0)
             dev = ex.checked_device(bundle) if int(bundle.get("bot_id", 0)) == bot_id else None
             # Личность из файла — только если сервер подтвердит, что она уже привязана к этому боту (тот же бот на
@@ -1054,7 +1050,6 @@ class UI:
         - "words_once" — 12 слов одним сообщением с запретом пересылки и сохранения; после «Я записал» (или через
           час) оно удаляется. Слова проходят через Telegram и созданы сервером пула — это исключение из spec/02,
           поэтому только по явной настройке оператора и с предупреждением владельцу."""
-        from veil import pool  # noqa: PLC0415 — слова только в модуле пула, не в интерфейсе (tests/test_cli.py)
         chat = msg["chat"]["id"]
         if data == "id:ok":
             mid = self.core.store.get("words_msg")
@@ -1062,7 +1057,7 @@ class UI:
             if mid:
                 try:
                     await self.bot.delete(chat, mid)
-                except TelegramError as e:  # запись остаётся в wipe_at: цикл удалит слова по сроку
+                except api.TelegramError as e:  # запись остаётся в wipe_at: цикл удалит слова по сроку
                     log.info("words delete failed: %s", e)
                 else:
                     self.unschedule_wipe(chat, mid)
@@ -1074,8 +1069,12 @@ class UI:
             await self.bot.edit(chat, msg["message_id"], self.T("text.welcome_back",
                                 sign=self.core.nick() or f"·{self.core.device.tag}"))
             return
+        create = (self.pool or {}).get("create_identity")
+        if not callable(create):  # настройка [pool] без действия от пула: слова в Telegram не показываем (spec/02)
+            await self._say(self.T("text.need_identity", config=self.config_name))
+            return
         mode = (self.pool or {}).get("identity", "custodial")
-        d, grid = await asyncio.to_thread(pool.create_identity, self.core.store, mode)  # Argon2id — не в цикле событий
+        d, grid = await asyncio.to_thread(create, self.core.store, mode)  # Argon2id — не в цикле событий
         self.core._device = d
         await self.bot.edit(chat, msg["message_id"], self.T("text.pool_identity_done", tag=d.tag))
         # Регистрация устройства на сервере стоит 1 токен; без токенов она пройдёт после /tokens.
@@ -1086,7 +1085,7 @@ class UI:
                                    entities=[{"type": "pre", "offset": _u16(self.T("text.pool_words", words="")),
                                               "length": _u16(grid)}],
                                    protect_content=True,
-                                   reply_markup=keyboard([[(self.T("button.pool_words_ok"), "id:ok")]]))
+                                   reply_markup=api.keyboard([[(self.T("button.pool_words_ok"), "id:ok")]]))
         del grid
         self.core.store.put("words_msg", sent["message_id"])
         self.schedule_wipe(chat, sent["message_id"], self.WORDS_TTL)
@@ -1109,7 +1108,7 @@ class UI:
         """Секрет в чате — удалить сразу. Не вышло (сеть, лимит) — срок «сейчас»: цикл удаления повторит."""
         try:
             await self.bot.delete(chat, mid)
-        except TelegramError as e:
+        except api.TelegramError as e:
             log.info("secret delete failed, will retry: %s", e)
             self.schedule_wipe(chat, mid, 0)
 
@@ -1117,7 +1116,7 @@ class UI:
         """Убрать служебное сообщение интерфейса; неудача — не повод прерывать работу."""
         try:
             await self.bot.delete(chat, mid)
-        except TelegramError as e:
+        except api.TelegramError as e:
             log.info("delete failed: %s", e)
 
     async def wipe_due(self) -> None:
@@ -1127,7 +1126,7 @@ class UI:
         for chat, mid, at in due:
             try:
                 await self.bot.delete(chat, mid)  # True и False: сообщения нет или Telegram отказал насовсем
-            except TelegramError as e:
+            except api.TelegramError as e:
                 if now - at < self.WIPE_GIVE_UP:
                     log.info("wipe: delete failed, will retry: %s", e)
                     continue  # запись остаётся; одна неудача не держит остальные
@@ -1244,7 +1243,7 @@ class UI:
                                      "replace": "text.await_replace"}[action], n=n), self._cancel_kb())
             self.core.store.put("await", {"what": action, "n": n, "ask": ask["message_id"] if ask else None})
         elif action == "del":
-            await self._say(tr("text.confirm_delete", n=n), keyboard([[(tr("button.delete_yes"), f"p:{n}:delok"),
+            await self._say(tr("text.confirm_delete", n=n), api.keyboard([[(tr("button.delete_yes"), f"p:{n}:delok"),
                                                                        (tr("button.cancel"), f"p:{n}:none")]]))
         elif action == "delok":
             await self._run(lambda: self.core.delete_post(n),
@@ -1260,7 +1259,7 @@ class UI:
         if st.get(api.today()):
             rows.append([(self.T("button.tokens_give"), "tok:give")])
         await self._say(self.T("text.tokens_status", lines=lines or self.T("text.tokens_none")) + "\n\n" +
-                        self.T("text.tokens_explain"), keyboard(rows))
+                        self.T("text.tokens_explain"), api.keyboard(rows))
 
     async def _token_give(self, data: str) -> None:
         """Перенос сегодняшних токенов другому своему боту (квота эмитента — на человека, а не на бота)."""
@@ -1271,7 +1270,8 @@ class UI:
                 return
             opts = [n for n in (5, 10, 25) if n < have] + [have]
             await self._say(self.T("text.tokens_give_ask", n=have),
-                            keyboard([[(str(n), f"tok:give:{n}") for n in opts], [(self.T("button.cancel"), "aw:x")]]))
+                            api.keyboard([[(str(n), f"tok:give:{n}") for n in opts],
+                                          [(self.T("button.cancel"), "aw:x")]]))
             return
         n = int(data.rsplit(":", 1)[1])
         parts = self.core.export_tokens(api.today(), min(n, have))
@@ -1290,7 +1290,7 @@ class UI:
         await self._wipe_now(m["chat"]["id"], m["message_id"])  # пересланный секрет — из переписки сразу
         try:
             res = self.core.import_token_part(m.get("text", ""))
-        except (IssueFormatError, ValueError) as e:
+        except (api.IssueFormatError, ValueError) as e:
             await self._say(self.T("text.tokens_import_bad", err=e))
             return
         if isinstance(res, tuple):
@@ -1325,7 +1325,7 @@ class UI:
         except api.UnknownTokenRequestError:
             await self._say(self.T("text.tokens_unknown_request"))
             return
-        except (IssueFormatError, ValueError) as e:
+        except (api.IssueFormatError, ValueError) as e:
             await self._say(self.T("text.tokens_bad", err=e))
             return
         if isinstance(added, tuple):
@@ -1373,9 +1373,9 @@ class UI:
         who = ev.sender or self.T("text.hidden_sender_anon")
         head = self.T("text.hidden_event_head", n=ev.n, url=ev.url, who=who)
         text = head + ("\n" + ev.text if ev.text else "")
-        shift = privacy.utf16(head + "\n")
+        shift = api.utf16(head + "\n")
         ents = [{**e, "offset": e["offset"] + shift} for e in (ev.entities or [])] if ev.text else None
-        markup = (keyboard([[(self.T("button.private_files", n=ev.file_count), f"pf:{ev.n}")]])
+        markup = (api.keyboard([[(self.T("button.private_files", n=ev.file_count), f"pf:{ev.n}")]])
                   if ev.file_count else None)
         await self.bot.send(self.owner, text, entities=ents or None, markup=markup)
 
@@ -1394,7 +1394,8 @@ class UI:
         prepared = []
         for f in files:
             kind = f.kind if f.kind in MEDIA_SEND else "document"
-            prepared.append((kind, safe_filename(f.name, kind), f.data, safe_mime(f.mime, MEDIA_MIME.get(kind))))
+            prepared.append((kind, api.safe_filename(f.name, kind), f.data,
+                             api.safe_mime(f.mime, MEDIA_MIME.get(kind))))
         kinds = {k for k, *_ in prepared}
         if len(prepared) > 1 and (kinds <= {"photo", "video"} or (len(kinds) == 1 and kinds & {"document", "audio"})):
             await self.bot.upload_group(self.owner, prepared)
@@ -1403,7 +1404,7 @@ class UI:
             method, field = MEDIA_SEND[kind]
             try:
                 await self.bot.upload(method, field, name, data, mime, chat_id=self.owner)
-            except TelegramError:  # вид не подошёл Telegram (например, «фото» — не картинка): файлом
+            except api.TelegramError:  # вид не подошёл Telegram (например, «фото» — не картинка): файлом
                 await self.bot.upload("sendDocument", "document", name, data, mime, chat_id=self.owner)
 
     async def _feed_loop(self, every: int) -> None:
@@ -1414,7 +1415,7 @@ class UI:
                 continue
             try:
                 await self._sync_once()
-            except (ServerError, NoReplyError, TelegramError) as e:
+            except (api.ServerError, api.NoReplyError, api.TelegramError) as e:
                 log.info("feed sync: %s", e)
             except Exception as e:  # цикл ленты не должен умирать до перезапуска бота
                 log.warning("feed sync: %s", type(e).__name__)

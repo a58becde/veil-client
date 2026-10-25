@@ -148,6 +148,7 @@ class Group:
         cfg["pool"]["leave"] = lambda: self.leave(bot_id)
         cfg["pool"]["restart"] = lambda: self._try_start(bot_id)  # после импорта настроек
         cfg["pool"]["feed_now"] = self.feed_soon
+        cfg["pool"]["create_identity"] = create_identity  # личность в пуле создаёт пул, не интерфейс бота
         cfg["privacy"]["auto_sync_feed_seconds"] = 0  # своей ленты у бота пула нет: общая на группу (feed_loop)
         ui, bot, core = await build(cfg, self.base, token, store, owner, engine=self.engine)
         me = await bot.get_me()

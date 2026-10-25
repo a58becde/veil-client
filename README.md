@@ -62,6 +62,9 @@ python3 -m venv .venv
 .venv/bin/pip install --require-hashes -r requirements.lock   # точные версии с хешами
 .venv/bin/pip install --no-deps -e . && .venv/bin/pip install pytest ruff   # ruff: правила в pyproject.toml
 .venv/bin/pip-compile --generate-hashes --strip-extras -o requirements.lock pyproject.toml   # обновить lock
+.venv/bin/pip install --require-hashes -r requirements-dev.lock   # import-linter (границы модулей)
+.venv/bin/pip-compile --generate-hashes --no-emit-index-url --strip-extras -o requirements-dev.lock requirements-dev.in
+.venv/bin/lint-imports --no-cache          # проверка границ модулей (контракты — pyproject.toml)
 .venv/bin/python -m pytest                 # нужен соседний клон veil-protocol (тестовые векторы)
 .venv/bin/python -m tools.gen_vectors      # перегенерировать veil-protocol/test-vectors/veil-v1.json
 ```

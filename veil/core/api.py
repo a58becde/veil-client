@@ -18,19 +18,32 @@ from nacl.signing import SigningKey
 
 from veil.core import privacy
 from veil.core.crypto import keys, poprf
+from veil.core.crypto.keys import KeyMismatchError as KeyMismatchError  # реэкспорт для интерфейса (поимённо)
+from veil.core.crypto.keys import display_name as display_name
 from veil.core.identity import nick as nickmod
+from veil.core.identity.nick import NickError as NickError
+from veil.core.privacy import kind as kind
+from veil.core.privacy import modes as modes
+from veil.core.privacy import text_of as text_of
+from veil.core.privacy import utf16 as utf16
 from veil.core.protocol import b64, errors, hidden, keysdoc
 from veil.core.protocol import content as contentmod
 from veil.core.store.db import Store
 from veil.core.transport.exchange import Exchange, NoReplyError, ServerError
-from veil.core.transport.telegram import Bot
+from veil.core.transport.telegram import Bot, TelegramError, keyboard, safe_filename, safe_mime  # noqa: F401 — реэкспорт
 from veil.core.wallet import issue
+from veil.core.wallet.issue import IssueFormatError as IssueFormatError
+
+# Кодирование ключей в хранилище интерфейса: base64url без дополнения (формат уже сохранённых значений).
+b64enc = b64.enc
+b64dec = b64.dec
 
 log = logging.getLogger("veil.core")
 TOKENS_PER_DAY = 50
 DAYS_AHEAD = 7
 # Строка номера в шапке поста (spec/06): «№N» или «№N  >>> №M» — целиком, без текста вокруг.
 _NUMBER_LINE = re.compile(r"№(\d+)(?:  >>> №\d+)?")
+MARKET_OPS = ("market.redeem", "market.key")
 TOKEN_ERRORS = {"E_TOKEN_INVALID", "E_TOKEN_SPENT", "E_TOKEN_DAY"}
 BAD_TOKEN_TRIES = 2 * 50  # подряд отвергнутых токенов на одну операцию: больше, чем бывает на день
 PRIVATE_FILES_TTL = 7 * 86400  # с: столько бот помнит, у какого поста можно забрать файлы «лично для» по кнопке
@@ -483,7 +496,7 @@ class Core:
         "unconfirmed" — итог неизвестен, пост мог выйти (E_UNCONFIRMED, E_RESPONSE_TOO_LARGE): владельцу — проверить
         группу, а не отправлять снова."""
         out: list[tuple[str, dict | None]] = []
-        for env_id, secret, kind, state, created in self.store.pending_posts():
+        for env_id, secret, post_kind, state, created in self.store.pending_posts():
             if env_id in self._inflight:
                 continue  # ответ ещё ждёт исходный запрос
             if time.time() - created > self.PENDING_TTL:
@@ -503,7 +516,7 @@ class Core:
                 continue
             except NoReplyError:
                 continue
-            self.store.add_post(res["n"], secret, res.get("url", ""), kind)
+            self.store.add_post(res["n"], secret, res.get("url", ""), post_kind)
             self.store.drop_pending_post(env_id)
             out.append(("published", res))
         return out
@@ -635,6 +648,17 @@ class Core:
             seen = self.store.get("contact_seq") or {}
             seen[id_pk] = max(int(seen.get(id_pk, 0)), int(seq))
             self.store.put("contact_seq", seen)
+
+    async def market_request(self, op: str, body: dict) -> dict:
+        """Анонимный запрос маркета (spec/10): активация лицензии или ключ обновления. Конверт — под новым
+        эфемерным ключом на каждый запрос; других операций интерфейсу не нужно."""
+        if op not in MARKET_OPS:
+            raise ValueError(f"market_request: операция {op!r} не из маркета")
+        return await self.exchange.request(op, "ephemeral", SigningKey.generate(), body=body)
+
+    def server_sig_pk(self) -> bytes:
+        """Закреплённый ключ подписи сервера (пусто — ещё не закреплён)."""
+        return b64.dec(self.store.get("pinned_server_sig") or "")
 
     async def refresh_keys(self) -> dict:
         """keys.get: по нему обновляются только ключи inbox_enc. Ключ эмитента закреплён и отсюда не меняется;

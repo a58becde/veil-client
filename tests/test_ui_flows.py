@@ -4,6 +4,7 @@ import asyncio
 import pytest
 from harness import OWNER, Env, person
 
+from veil import pool
 from veil.core import api
 from veil.core.protocol import b64, hidden
 from veil.core.transport.exchange import NoReplyError, ServerError
@@ -452,7 +453,8 @@ def test_pool_commands_and_buttons(tmp_path):
 
     async def feed_now():
         feed.append(True)
-    e = Env(tmp_path, pool={"identity": "words_once", "leave": leave, "feed_now": feed_now})
+    e = Env(tmp_path, pool={"identity": "words_once", "leave": leave, "feed_now": feed_now,
+                            "create_identity": pool.create_identity})
     e.route(e.msg("/start"))
     assert "id:new" in e.last_markup_data() and has(e, "оператор") and feed
     e.route(e.msg("/leave"))
@@ -467,6 +469,15 @@ def test_pool_commands_and_buttons(tmp_path):
     assert e.store.get("words_msg") is None
     e.route(e.press("id:new", msg_id=3))  # личность уже есть — ничего нового
     assert has(e, "Бот Veil готов")
+
+
+def test_pool_table_without_pool_action_creates_no_identity(tmp_path):
+    """Таблица [pool] в конфиге бота вне пула (нет create_identity) личность и слова в Telegram не открывает."""
+    e = Env(tmp_path, pool={"identity": "words_once"})
+    e.route(e.press("id:new", msg_id=3))
+    assert e.store.load_device() is None and e.store.get("words_msg") is None
+    assert has(e, e.ui.T("text.need_identity", config="config.toml"))
+    assert not any("protect_content" in kw for _, kw in e.tg.calls)  # сообщения со словами не отправлялись
 
 
 def test_leave_only_in_pool(tmp_path):

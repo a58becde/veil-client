@@ -41,10 +41,49 @@ veil-client/
   tools/                 # векторы протокола, живые проверки против сервера (smoke_*), нагрузка пула
 ```
 Английской локали пока нет — это план.
-Правило зависимостей: интерфейс использует **только** `core/api.py`, плагины — **только** SDK `veil.plugins` внутри
-движка (`engine/guest/veil/plugins.py`: события, команды, кнопки, `notify_owner`, `propose_draft`, `http`). Внутренности
-ядра могут меняться между версиями, `api.py` и SDK плагинов (API плагинов, `api` в манифесте) — по семантическому
-версионированию.
+Правила зависимостей между модулями — в разделе «Границы модулей» ниже. Плагины пользуются **только** SDK
+`veil.plugins` внутри движка (`engine/guest/veil/plugins.py`: события, команды, кнопки, `notify_owner`,
+`propose_draft`, `http`). Внутренности ядра могут меняться между версиями, `api.py` и SDK плагинов (API плагинов,
+`api` в манифесте) — по семантическому версионированию.
+
+## Границы модулей
+Слои бота сверху вниз: модуль выше может импортировать нижние, обратно — нельзя; `|` — соседи, друг друга не
+импортируют.
+```
+veil.pool                                           запуск пула (собирает ботов)
+veil.__main__ | veil.plugin_dev | veil.market_tool  точки входа
+veil.ui | veil.cli                                  интерфейс Telegram | консоль (12 слов — только здесь)
+veil.market | veil.plugin_engine                    маркет | движок — сторона бота
+veil.plugins                                        реестр плагинов, события
+veil.plugin_manifest | veil.plugin_host             манифест | процесс-хост движка
+veil.sandbox | veil.seccomp                         Landlock | seccomp
+veil.core                                           ядро
+```
+Слои ядра (`veil.core`) сверху вниз:
+```
+api
+export | privacy | transport | store
+wallet | identity
+crypto
+protocol
+```
+Правила словами:
+- интерфейс (`veil.ui`) видит ядро только через `veil.core.api` и `veil.core.export`; `nacl`, `httpx`, `sqlite3`
+  в нём не импортируются;
+- 12 слов (`bip39`, `veil.cli`, `mnemonic`) недостижимы из интерфейса, `api`, `export`, плагинов, движка и маркета —
+  даже транзитивно; личность в пуле создаёт пул и передаёт интерфейсу действие `create_identity` в `cfg["pool"]`;
+- плагины, движок, манифест, процесс-хост, `sandbox` и `seccomp` ядра не видят (ни ключей, ни токенов, ни
+  хранилища, ни `nacl`, ни `sqlite3`);
+- процесс-хост, `sandbox`, `seccomp` не знают о плагинах, маркете и сети (`httpx`); хост и `wasmtime` подключает
+  только `veil.plugin_engine`;
+- маркет берёт из ядра только `protocol` и `crypto`; обмен с сервером ему передаёт интерфейс функцией
+  (`Core.market_request`);
+- в ядре `httpx` — только в `transport`, `sqlite3` — только в `store`.
+
+Проверяет `lint-imports` (import-linter, контракты — `pyproject.toml`, `[tool.importlinter]`): он входит в ворота
+проекта. Новый модуль или новая связь — сначала в `pyproject.toml` и в этот раздел. Установка инструмента —
+`pip install --require-hashes -r requirements-dev.lock`. Гостевой SDK движка (`engine/guest`) — отдельный корень
+сборки; тест `test_guest_imports` следит, чтобы он тянул только stdlib и привязки WIT.
 
 ## Публичный API ядра (`veil.core.api`)
 Команды (async): `check_draft(draft)` (`post.check` до кнопки «Отправить»), `create_post(draft)`,
@@ -53,6 +92,15 @@ veil-client/
 смена ключа шифрования), `sync_feed()`, `private_files(n)` (файлы «лично для» — только по запросу владельца),
 `refresh_keys()`. Синхронно: `tokens_status()`, `make_token_request()`, `accept_token_part(text)`,
 `export_tokens(day, count)`, `import_token_part(text)`. Экспорт и импорт — `veil.core.export` (docs/EXPORT.md).
+Для маркета: `market_request(op, body)` (анонимный запрос `market.redeem` или `market.key` под новым эфемерным
+ключом; другие операции — `ValueError`) и `server_sig_pk()` (закреплённый ключ подписи сервера).
+
+Имена, которые `api` реэкспортирует интерфейсу поимённо (модули целиком не реэкспортируются): ошибки
+`KeyMismatchError`, `NickError`, `IssueFormatError`, `NoReplyError`, `ServerError`, `TelegramError`; Telegram —
+`Bot`, `keyboard`, `safe_filename`, `safe_mime`; `display_name`; таблица скрытия — `text_of`, `kind`, `modes`,
+`utf16`; кодирование ключей в хранилище интерфейса — `b64enc`, `b64dec` (base64url без дополнения).
+Хранилище `Core.store` для интерфейса — только ключ-значение и черновики; остальное должно идти через методы `Core`
+(часть вызовов пока обращается к хранилищу напрямую — линтер импортов этого не видит).
 
 **12 слов в API нет** (2026-10-16): ядро и интерфейс не создают, не показывают и не принимают их. Личность
 создаётся и восстанавливается только консольными командами `veil/cli.py`; плагины и интерфейс до слов не
