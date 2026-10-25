@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from veil import pool, sandbox
-from veil.core.transport.telegram import TelegramError
+from veil.core.transport.telegram import Bot, TelegramError
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -24,6 +24,16 @@ class Mgr:
 
     async def get_me(self):
         return {"id": 1, "username": "mgr_bot", "can_manage_bots": True}
+
+    # Цикл опроса — настоящий (Bot.poll) поверх подставных call и пауз.
+    poll = Bot.poll
+
+    async def _sleep(self, _seconds):
+        await asyncio.sleep(0)
+
+    async def get_updates(self, offset, timeout=50, *, limit=None, allowed=()):
+        return await self.call("getUpdates", offset=offset, timeout=timeout, limit=limit,
+                               allowed_updates=list(allowed))
 
     async def call(self, method, **kw):
         self.calls.append((method, kw))
@@ -112,17 +122,8 @@ def test_supervisor_run_loop(tmp_path):
                                         "managed_bot_created": {}}},
            {"update_id": 4, "message": {"chat": {"id": 5, "type": "group"}, "from": {"id": 5}, "text": "/start"}}]
     s.mgr = Mgr([upd, TelegramError("getUpdates", 502, "x")])
-    real_sleep = asyncio.sleep
-
-    async def fast(sec):
-        await real_sleep(0)
-    import veil.pool as vp
-    vp.asyncio.sleep = fast
-    try:
-        with pytest.raises(asyncio.CancelledError):
-            asyncio.run(s.run())
-    finally:
-        vp.asyncio.sleep = real_sleep
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(s.run())
     texts = [t for _, t in s.mgr.sent]
     assert any("/mybots" in t for t in texts) and len(texts) == 2
 

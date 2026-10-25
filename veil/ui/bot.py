@@ -310,7 +310,6 @@ class UI:
 
     # --- цикл апдейтов ---
     async def run(self) -> None:
-        offset = 0
         self._spawn(self.setup())  # ответ на keys.get приходит через этот же цикл — нельзя ждать его до цикла
         sync = self.cfg["privacy"].get("auto_sync_feed_seconds", 60)
         if sync:
@@ -318,19 +317,7 @@ class UI:
         self._spawn(self._daily_loop())
         self._spawn(self._resume_scheduled())
         self._spawn(self._wipe_loop())
-        while True:
-            try:
-                ups = await self.bot.get_updates(offset)
-            except TelegramError as e:
-                log.warning("getUpdates: %s", e)
-                await asyncio.sleep(max(e.retry_after, 3))
-                continue
-            for u in ups:
-                offset = u["update_id"] + 1
-                try:
-                    self._route(u)
-                except Exception:
-                    log.exception("update")
+        await self.bot.poll(self._route, allowed=("message", "callback_query"))
 
     def _spawn(self, coro) -> None:
         t = asyncio.create_task(self._guard(coro))
@@ -683,6 +670,13 @@ class UI:
         except api.OtherBotError:
             await report(self.T("text.other_bot", config=self.config_name))
             return "other_bot"
+        except TelegramError as e:
+            if e.code != 429:
+                log.exception("operation failed")
+                await report(self.T("text.internal"))
+                return "internal"
+            await report(self.T("text.telegram_busy", wait=human_wait(e.retry_after)))
+            return "telegram_busy"
         except ValueError as e:
             if "envelope too large" in str(e):
                 await report(self.T("text.envelope_too_big"))
@@ -741,9 +735,9 @@ class UI:
         i = state["draft"]
         self.core.store.save_draft(d.to_json(), i)
         # Черновик выше по чату легко не заметить: старый и вопрос «Кому?» убираем, новый — внизу.
-        await self.bot.delete(state["chat"], state["mid"])
+        await self._tidy(state["chat"], state["mid"])
         if state.get("ask"):
-            await self.bot.delete(state["chat"], state["ask"])
+            await self._tidy(state["chat"], state["ask"])
         await self._show_draft(i, d)
 
     async def _post_menu(self, n: int) -> None:
@@ -1015,7 +1009,7 @@ class UI:
 
     async def _import_file(self, m: dict) -> None:
         doc = m["document"]
-        await self.bot.delete(m["chat"]["id"], m["message_id"])  # файл с секретами — из переписки сразу
+        await self._wipe_now(m["chat"]["id"], m["message_id"])  # файл с секретами — из переписки сразу
         sk = self.core.store.get("import_sk")
         try:
             if int(doc.get("file_size") or 0) > ex.MAX_FILE:
@@ -1059,8 +1053,12 @@ class UI:
             mid = self.core.store.get("words_msg")
             self.core.store.put("words_msg", None)
             if mid:
-                await self.bot.delete(chat, mid)
-                self.unschedule_wipe(chat, mid)
+                try:
+                    await self.bot.delete(chat, mid)
+                except TelegramError as e:  # запись остаётся в wipe_at: цикл удалит слова по сроку
+                    log.info("words delete failed: %s", e)
+                else:
+                    self.unschedule_wipe(chat, mid)
             await self._say(self.T("text.pool_words_gone"))
             await self._sync_identity()
             await self._say(self.status_text(), self.status_keyboard())
@@ -1098,17 +1096,42 @@ class UI:
         self.core.store.put("wipe_at",
                             [w for w in self.core.store.get("wipe_at") or [] if w[:2] != [chat, mid]] or None)
 
+    WIPE_GIVE_UP = 48 * 3600  # с после срока: дольше Telegram всё равно не даёт удалить
+
+    async def _wipe_now(self, chat: int, mid: int) -> None:
+        """Секрет в чате — удалить сразу. Не вышло (сеть, лимит) — срок «сейчас»: цикл удаления повторит."""
+        try:
+            await self.bot.delete(chat, mid)
+        except TelegramError as e:
+            log.info("secret delete failed, will retry: %s", e)
+            self.schedule_wipe(chat, mid, 0)
+
+    async def _tidy(self, chat: int, mid: int) -> None:
+        """Убрать служебное сообщение интерфейса; неудача — не повод прерывать работу."""
+        try:
+            await self.bot.delete(chat, mid)
+        except TelegramError as e:
+            log.info("delete failed: %s", e)
+
     async def wipe_due(self) -> None:
         now = int(time.time())
-        pending = self.core.store.get("wipe_at") or []
-        due = [w for w in pending if w[2] <= now]
-        if not due:
-            return
-        for chat, mid, _ in due:
-            await self.bot.delete(chat, mid)
+        due = [tuple(w[:3]) for w in self.core.store.get("wipe_at") or [] if w[2] <= now]
+        done = []
+        for chat, mid, at in due:
+            try:
+                await self.bot.delete(chat, mid)  # True и False: сообщения нет или Telegram отказал насовсем
+            except TelegramError as e:
+                if now - at < self.WIPE_GIVE_UP:
+                    log.info("wipe: delete failed, will retry: %s", e)
+                    continue  # запись остаётся; одна неудача не держит остальные
+                log.info("wipe: giving up on a message past the deletion window: %s", e)
+            done.append((chat, mid, at))
             if self.core.store.get("words_msg") == mid:
                 self.core.store.put("words_msg", None)
-        self.core.store.put("wipe_at", [w for w in pending if w[2] > now] or None)
+        if done:
+            # За время удалений schedule_wipe мог добавить записи: читаем заново и снимаем только обработанные.
+            self.core.store.put("wipe_at", [w for w in self.core.store.get("wipe_at") or []
+                                            if tuple(w[:3]) not in done] or None)
 
     async def _wipe_loop(self) -> None:
         while True:
@@ -1256,7 +1279,7 @@ class UI:
     TRANSFER_TTL = 3600
 
     async def _token_import(self, m: dict) -> None:
-        await self.bot.delete(m["chat"]["id"], m["message_id"])  # пересланный секрет — из переписки сразу
+        await self._wipe_now(m["chat"]["id"], m["message_id"])  # пересланный секрет — из переписки сразу
         try:
             res = self.core.import_token_part(m.get("text", ""))
         except (IssueFormatError, ValueError) as e:

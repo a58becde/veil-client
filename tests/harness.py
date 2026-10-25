@@ -199,8 +199,10 @@ class Env:
     def __init__(self, tmp: Path, *, owner: int = OWNER, pool: dict | None = None, tokens: int = 10,
                  delay=(0, 0), identity: bool = False):
         self.tg = FakeTelegram()
-        self.bot = Bot("1:x", base_url="https://tg.test")
-        self.bot._http = httpx.AsyncClient(transport=httpx.MockTransport(self.tg.handler))
+        async def no_sleep(_seconds: float) -> None:
+            return None
+        self.bot = Bot("1:x", base_url="https://tg.test", transport=httpx.MockTransport(self.tg.handler),
+                       sleep=no_sleep)
         self.server = FakeServer()
         self.store = Store(tmp)
         from veil.core.protocol import keysdoc

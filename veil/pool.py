@@ -653,21 +653,7 @@ class Supervisor:
         for g in groups:
             await self.spawn(g)
         background(self.housekeeping_loop())
-        offset = 0
-        while True:
-            try:
-                ups = await self.mgr.call("getUpdates", offset=offset, timeout=50,
-                                          allowed_updates=["message", "managed_bot", "callback_query"])
-            except TelegramError as e:
-                log.warning("manager getUpdates: %s", e.description)
-                await asyncio.sleep(max(e.retry_after, 3))
-                continue
-            for u in ups:
-                offset = u["update_id"] + 1
-                try:
-                    await self.on_update(u)
-                except Exception:  # noqa: BLE001
-                    log.exception("manager update")
+        await self.mgr.poll(self.on_update, allowed=("message", "managed_bot", "callback_query"))
 
 
 POOL_TEXTS = {

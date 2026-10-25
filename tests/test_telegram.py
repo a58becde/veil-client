@@ -9,9 +9,9 @@ from veil.core.transport.telegram import Bot, TelegramError, keyboard
 
 
 def bot_with(handler):
-    b = Bot("123:SECRET", base_url="https://tg.test")
-    b._http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
-    return b
+    async def no_sleep(_seconds):
+        return None
+    return Bot("123:SECRET", base_url="https://tg.test", transport=httpx.MockTransport(handler), sleep=no_sleep)
 
 
 def ok(result):
@@ -124,7 +124,7 @@ def test_edit_not_modified_answer_delete_swallow():
     b = bot_with(h)
     run(b.edit(1, 2, "t"))          # «не изменилось» — не ошибка
     run(b.answer("q"))              # устаревший callback — не ошибка
-    run(b.delete(1, 2))             # уже удалено — не ошибка
+    assert run(b.delete(1, 2)) is False  # Telegram отказал насовсем — не исключение, но и не «удалено»
 
     def h2(req):
         return httpx.Response(400, json={"ok": False, "error_code": 400, "description": "Bad Request: other"})

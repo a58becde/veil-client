@@ -591,15 +591,14 @@ def test_run_loop_routes_updates(tmp_path):
     calls = {"n": 0}
     real = e.bot.get_updates
 
-    async def get_updates(offset, timeout=50):
+    async def get_updates(offset, timeout=50, **kw):
         calls["n"] += 1
         if calls["n"] == 2:
             raise TelegramError("getUpdates", 502, "Bad Gateway")
         if calls["n"] > 3:
             raise asyncio.CancelledError
-        return await real(offset, timeout)
+        return await real(offset, timeout, **kw)
     e.bot.get_updates = get_updates
-
     async def idle(*a):
         pass
     for name in ("setup", "_feed_loop", "_daily_loop", "_resume_scheduled", "_wipe_loop"):
