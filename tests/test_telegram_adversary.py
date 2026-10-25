@@ -205,7 +205,14 @@ def test_token_accepted_exactly_by_pattern(tok):
         Bot(tok, base_url="https://tg.test", transport=httpx.MockTransport(Script()))
     except ValueError as e:
         assert not good
-        assert tok not in str(e) or len(tok) <= 2
+        # токен не попадает в текст: он совпадает с текстом для заведомо другого неверного токена
+        # (короткий токен может быть подстрокой постоянной части, поэтому «tok not in text» ложно)
+        try:
+            Bot("" if not tok else "\x00\x01", base_url="https://tg.test", transport=httpx.MockTransport(Script()))
+        except ValueError as other:
+            assert str(e) == str(other)
+        else:
+            raise AssertionError("заведомо неверный токен принят")
     else:
         assert good
 

@@ -19,7 +19,7 @@ from nacl.signing import SigningKey
 from veil.core import privacy
 from veil.core.crypto import keys, poprf
 from veil.core.identity import nick as nickmod
-from veil.core.protocol import b64, hidden, keysdoc
+from veil.core.protocol import b64, errors, hidden, keysdoc
 from veil.core.protocol import content as contentmod
 from veil.core.store.db import Store
 from veil.core.transport.exchange import Exchange, NoReplyError, ServerError
@@ -363,7 +363,8 @@ class Core:
         токены могли уже потратить другим ботом: сервер принимает каждый один раз, такой токен помечается bad). Если
         конверт записан в журнал (journal) и итога нет, токен считается потраченным: он закреплён за конвертом.
         E_PENDING (в том числе раньше на этот же конверт — e.accepted) значит, что действие принято и токен потрачен
-        вместе с ним: новый токен и новый конверт дали бы второй пост."""
+        вместе с ним: новый токен и новый конверт дали бы второй пост. E_RESPONSE_TOO_LARGE — тоже: действие могло
+        состояться, а ответ не поместился (errors.TOKEN_SPENT)."""
         for _ in range(BAD_TOKEN_TRIES):
             tok = self.store.take_token(today())
             if tok is None:
@@ -375,7 +376,7 @@ class Core:
             try:
                 res = await self.exchange.request(op, auth_mode, auth_key, token=tok.envelope(), **req)
             except ServerError as e:
-                if e.code == "E_PENDING" or e.accepted:
+                if e.code in errors.TOKEN_SPENT or e.accepted:
                     self.store.finish_token(tok, "spent")
                     raise
                 self.store.finish_token(tok, "bad" if e.code in TOKEN_ERRORS else "ready")
@@ -478,7 +479,9 @@ class Core:
 
     async def resume_pending(self) -> list[tuple[str, dict | None]]:
         """Дозапросить итог постов, конверт которых ушёл без ответа. Возвращает события для владельца:
-        ("published", result) | ("failed", None) | ("lost", None)."""
+        ("published", result) | ("failed", None) | ("unconfirmed", None) | ("lost", None).
+        "unconfirmed" — итог неизвестен, пост мог выйти (E_UNCONFIRMED, E_RESPONSE_TOO_LARGE): владельцу — проверить
+        группу, а не отправлять снова."""
         out: list[tuple[str, dict | None]] = []
         for env_id, secret, kind, state, created in self.store.pending_posts():
             if env_id in self._inflight:
@@ -495,7 +498,8 @@ class Core:
                 if e.code == "E_PENDING" or e.accepted:
                     continue
                 self.store.drop_pending_post(env_id)
-                out.append(("failed", None))
+                unknown = e.code in (errors.E_RESPONSE_TOO_LARGE, errors.E_UNCONFIRMED)
+                out.append(("unconfirmed" if unknown else "failed", None))
                 continue
             except NoReplyError:
                 continue

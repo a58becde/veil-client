@@ -592,7 +592,14 @@ class UI:
         """Понятное объяснение ошибки сервера вместо кода (коды пользователю не показываются)."""
         if e.code == "E_TOO_LONG":
             return self.T("text.too_long", n=e.overflow)
-        key = "error.E_PENDING" if e.accepted else f"error.{e.code}"  # принято сервером: не «не выполнено»
+        if not e.accepted:
+            key = f"error.{e.code}"
+        elif e.code == "E_UNCONFIRMED":  # принято раньше, итог неизвестен: токен уже потрачен
+            key = "error.E_UNCONFIRMED_ACCEPTED"
+        elif e.code == "E_RESPONSE_TOO_LARGE":  # принято раньше, итог известен серверу, но не передан
+            key = "error.E_RESPONSE_TOO_LARGE"
+        else:
+            key = "error.E_PENDING"  # принято сервером: не «не выполнено»
         if self.T.has(key):
             return self.T(key, wait=human_wait(e.retry_after))
         log.warning("server error without explanation: %s", e.code)  # код — только в журнал, не владельцу
@@ -1181,7 +1188,8 @@ class UI:
                         await self._say(self.T("text.published", n=res["n"], url=res.get("url", "")))
                         self.plugins.fire("post_published", plug.Published(res["n"], res.get("url", ""), None, None))
                     else:
-                        await self._say(self.T("text.post_lost" if what == "lost" else "text.post_failed"))
+                        key = {"lost": "text.post_lost", "unconfirmed": "text.post_unconfirmed"}.get(what)
+                        await self._say(self.T(key or "text.post_failed"))
             except Exception as e:
                 log.info("resume pending: %s", type(e).__name__)
             await asyncio.sleep(300)

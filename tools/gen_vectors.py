@@ -115,6 +115,9 @@ def main() -> None:
     assert coreapi.TOKENS_PER_DAY == issue.MAX_PER_DAY
     # Коды ошибок ответа и форматы идентификаторов — тоже один список на обе стороны.
     v["error_codes"] = list(errors.CODES)
+    # Смысл кодов: какие ответы сервер не сохраняет (повтор выполняется заново) и после каких токен потрачен.
+    v["error_semantics"] = {"not_saved": [errors.E_INTERNAL, errors.E_RATE, errors.E_TELEGRAM, errors.E_PENDING],
+                            "token_spent": list(errors.TOKEN_SPENT)}
     v["formats"] = {"kid": envelope.KID_PATTERN, "op": envelope.OP_PATTERN, "id": envelope.ULID_PATTERN}
     v["text_sha256"] = [{"text": t, "sha256": content.text_sha256(t)} for t in ("", "Привет, мир", "a\nb 😀")]
     ent_cases = [[], [{"offset": 0, "length": 7, "type": "bold"}, {"offset": 7, "length": 6, "type": "italic"}],
