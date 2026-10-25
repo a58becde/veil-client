@@ -30,8 +30,8 @@ from veil import plugin_manifest as pm
 
 log = logging.getLogger("veil.plugins")
 
-ENGINE_SHA256 = "6814efbd5a3a6063e253a09494a988a4c6f075d036e23bbbc121658a1a85aea6"  # официальная сборка движка 1
-ENGINE_URL = "https://github.com/a58becde/veil-client/releases/download/engine-1/veil-engine.wasm"
+ENGINE_SHA256 = "228ad02faacdbd5b0be3407781ec21f5f68dcc8a0857330f8bc405a5919eef9e"  # официальная сборка движка 2
+ENGINE_URL = "https://github.com/a58becde/veil-client/releases/download/engine-2/veil-engine.wasm"
 ENGINE_MAX = 64 << 20
 APP_ROOT = Path(plugins.__file__).resolve().parent.parent
 DEFAULT_ENGINE = APP_ROOT / "engine" / "dist" / "veil-engine.wasm"

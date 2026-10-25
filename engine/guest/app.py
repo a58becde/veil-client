@@ -8,12 +8,50 @@ import importlib.util
 import sys
 import traceback
 
+# isort: split
 # Стандартная библиотека для плагинов. В движок попадает только то, что импортировано при сборке (снимок памяти
 # CPython), — поэтому список явный и он же в docs/PLUGINS.md. Сети, процессов, потоков и файлов в нём нет.
-import base64, binascii, bisect, calendar, codecs, collections, collections.abc, copy, csv, dataclasses  # noqa: E401, F401
-import datetime, decimal, difflib, enum, fractions, functools, hashlib, heapq, hmac, html, html.parser  # noqa: E401, F401
-import io, ipaddress, itertools, json, math, operator, random, re, secrets, statistics, string, struct  # noqa: E401, F401
-import textwrap, time, typing, unicodedata, urllib.parse, uuid, zlib  # noqa: E401, F401
+# F401: модули импортируются ради снимка памяти, самим движком не используются.
+import base64  # noqa: F401
+import binascii  # noqa: F401
+import bisect  # noqa: F401
+import calendar  # noqa: F401
+import codecs  # noqa: F401
+import collections  # noqa: F401
+import collections.abc  # noqa: F401
+import copy  # noqa: F401
+import csv  # noqa: F401
+import dataclasses  # noqa: F401
+import datetime  # noqa: F401
+import decimal  # noqa: F401
+import difflib  # noqa: F401
+import enum  # noqa: F401
+import fractions  # noqa: F401
+import functools  # noqa: F401
+import hashlib  # noqa: F401
+import heapq  # noqa: F401
+import hmac  # noqa: F401
+import html  # noqa: F401
+import html.parser  # noqa: F401
+import io  # noqa: F401
+import ipaddress  # noqa: F401
+import itertools  # noqa: F401
+import json  # noqa: F401
+import math  # noqa: F401
+import operator  # noqa: F401
+import random  # noqa: F401
+import re  # noqa: F401
+import secrets  # noqa: F401
+import statistics  # noqa: F401
+import string  # noqa: F401
+import struct  # noqa: F401
+import textwrap  # noqa: F401
+import time  # noqa: F401
+import typing  # noqa: F401
+import unicodedata  # noqa: F401
+import urllib.parse  # noqa: F401
+import uuid  # noqa: F401
+import zlib  # noqa: F401
 
 from componentize_py_types import Err
 from wit_world import WitWorld as _World

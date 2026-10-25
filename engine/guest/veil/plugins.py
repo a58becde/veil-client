@@ -334,7 +334,8 @@ async def http(method: str, url: str, *, headers: dict | None = None, body: byte
     перенаправлениям; ответ до 4 МиБ."""
     if isinstance(body, str):
         body = body.encode()
-    v = _call("http", method=str(method).upper(), url=str(url), headers={str(k): str(x) for k, x in (headers or {}).items()},
+    v = _call("http", method=str(method).upper(), url=str(url),
+              headers={str(k): str(x) for k, x in (headers or {}).items()},
               body=base64.b64encode(body or b"").decode(), timeout=float(timeout))
     return Response(int(v["status"]), dict(v["headers"]), base64.b64decode(v["body"]))
 
