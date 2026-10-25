@@ -239,7 +239,7 @@ async def settle(e: Env) -> None:
 
 async def go(e: Env, *updates) -> None:
     for u in updates:
-        e.ui._route(u)
+        e.ui.handle_update(u)
         await settle(e)
 
 

@@ -382,8 +382,8 @@ def test_album_becomes_one_draft(tmp_path):
     b = e.msg(None, media_group_id="g1", photo=[{"file_id": "b", "file_unique_id": "ub"}])
 
     async def go():
-        e.ui._route(a)
-        e.ui._route(b)
+        e.ui.handle_update(a)
+        e.ui.handle_update(b)
         await e.drain()
     asyncio.run(go())
     d = api.Draft.from_json(e.store.draft(e.draft_id()))
@@ -396,8 +396,8 @@ def test_long_text_split_by_telegram_joined(tmp_path):
     second = e.msg("хвост")
 
     async def go():
-        e.ui._route(first)
-        e.ui._route(second)
+        e.ui.handle_update(first)
+        e.ui.handle_update(second)
         await e.drain()
     asyncio.run(go())
     d = api.Draft.from_json(e.store.draft(e.draft_id()))

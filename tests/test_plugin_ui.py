@@ -69,7 +69,7 @@ def probe(tmp_path):
 
 async def go(e, *updates):
     for u in updates:
-        e.ui._route(u)
+        e.ui.handle_update(u)
         await settle(e)
 
 

@@ -47,6 +47,8 @@ POLL_WAIT_MAX = 60
 _RETRY_AFTER_CAP = 86400
 _DESCRIPTION_CAP = 512
 _BACKOFF = (3, 6, 12, 24, 48, 60)
+# служебные вызовы, о которых наблюдатель не сообщается (опрос и получение пути файла)
+_UNOBSERVED = frozenset({"getUpdates", "getFile"})
 _MAX_ID = 2 ** 53
 
 _TOKEN = re.compile(r"[0-9]{1,20}:[A-Za-z0-9_-]{1,128}")
@@ -136,7 +138,8 @@ def _message_id(x: object, method: str) -> int:
 class Bot:
     def __init__(self, token: str, *, proxy: str | None = None, base_url: str = "https://api.telegram.org",
                  transport: httpx.AsyncBaseTransport | None = None,
-                 sleep: Callable[[float], Awaitable[None]] = asyncio.sleep):
+                 sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+                 observer: Callable[[str, dict, Any], None] | None = None):
         if not token:
             raise ValueError("empty bot token")
         if not isinstance(token, str) or not _TOKEN.fullmatch(token):
@@ -145,6 +148,7 @@ class Bot:
         self._url = f"{root}/bot{token}/"
         self._file_url = f"{root}/file/bot{token}/"
         self._sleep = sleep
+        self._observer = observer
         self._http = httpx.AsyncClient(timeout=httpx.Timeout(75.0, connect=15.0), proxy=proxy, transport=transport,
                                        trust_env=root.startswith("https") and proxy is None)
 
@@ -220,13 +224,32 @@ class Bot:
             raise err
         raise AssertionError("unreachable")  # pragma: no cover
 
+    def _observe(self, method: str, params: dict, result: Any) -> None:
+        """Сообщить наблюдателю об успешном вызове. Токена и адреса в аргументах нет (они только в self._url);
+        сбой наблюдателя пишется в журнал без параметров и вызов не ломает. Аргументы — те же объекты, что видит
+        бот: наблюдатель их не изменяет."""
+        if self._observer is None or method in _UNOBSERVED:
+            return
+        try:
+            self._observer(method, params, result)
+        except Exception as e:
+            log.warning("observer %s failed: %s", method, type(e).__name__)
+
     async def call(self, method: str, **params: Any) -> Any:
         params = {k: v for k, v in params.items() if v is not None}
-        return await self._request(method, MAX_RESPONSE, self._http.timeout, json=params)
+        result = await self._request(method, MAX_RESPONSE, self._http.timeout, json=params)
+        self._observe(method, params, result)
+        return result
 
     async def _post_files(self, method: str, form: dict, files: dict) -> Any:
-        return await self._request(method, MAX_UPLOAD_RESPONSE, httpx.Timeout(300.0, connect=15.0),
-                                   data=form, files=files)
+        result = await self._request(method, MAX_UPLOAD_RESPONSE, httpx.Timeout(300.0, connect=15.0),
+                                     data=form, files=files)
+        # байты файлов наблюдателю не отдаются: имя, тип и размер
+        shown = {"_file": [{"field": f, "name": v[0], "mime": v[2], "size": len(v[1])} for f, v in files.items()]}
+        if len(files) == 1:
+            shown = {"_file": shown["_file"][0]}
+        self._observe(method, {**form, **shown}, result)
+        return result
 
     async def upload(self, method: str, field: str, filename: str, data: bytes, mime: str, **params: Any) -> Any:
         """Метод с загрузкой файла (multipart/form-data). Сложные параметры — JSON-строкой."""

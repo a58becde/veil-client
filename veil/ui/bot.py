@@ -311,7 +311,7 @@ class UI:
         self._spawn(self._daily_loop())
         self._spawn(self._resume_scheduled())
         self._spawn(self._wipe_loop())
-        await self.bot.poll(self._route, allowed=("message", "callback_query"))
+        await self.bot.poll(self.handle_update, allowed=("message", "callback_query"))
 
     def _spawn(self, coro) -> None:
         t = asyncio.create_task(self._guard(coro))
@@ -324,7 +324,9 @@ class UI:
         except Exception:
             log.exception("handler")
 
-    def _route(self, u: dict) -> None:
+    def handle_update(self, u: dict) -> None:
+        """Точка входа апдейта Telegram: маршрутизация по виду (нажатие, сообщение владельца, ответ приёмного бота).
+        Её вызывает цикл опроса; так же апдейт можно подать извне (автоматизация, тесты)."""
         if "callback_query" in u:
             q = u["callback_query"]
             if q["from"]["id"] == self.owner:

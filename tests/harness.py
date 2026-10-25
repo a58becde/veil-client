@@ -253,7 +253,7 @@ class Env:
     def route(self, *updates) -> None:
         async def go():
             for u in updates:
-                self.ui._route(u)
+                self.ui.handle_update(u)
                 await self.drain()
         asyncio.run(go())
 

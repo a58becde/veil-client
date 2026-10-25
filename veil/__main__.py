@@ -20,7 +20,9 @@ import logging
 import os
 import sys
 import tomllib
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 from veil import cli, market, plugin_engine, plugins
 from veil.core import api
@@ -44,9 +46,11 @@ def load_config(path: Path) -> dict:
 
 
 async def build(cfg: dict, base: Path, token: str, store: Store, owner_id: int = 0,
-                engine: plugin_engine.Engine | None = None) -> tuple[UI, Bot, api.Core]:
+                engine: plugin_engine.Engine | None = None,
+                observer: Callable[[str, dict, Any], None] | None = None) -> tuple[UI, Bot, api.Core]:
     """Собрать бота: хранилище уже открыто. Общая часть для отдельного бота (main) и пула (veil.pool). engine — движок
-    плагинов (у своего бота — свой, в пуле — общий для группы); без него плагинов нет."""
+    плагинов (у своего бота — свой, в пуле — общий для группы); без него плагинов нет. observer — наблюдатель
+    успешных вызовов Bot API: observer(метод, параметры, результат); токена и адреса в нём нет."""
     store.release_reserved()
     keep = int(cfg["privacy"].get("keep_posts_days", 30))
     if n := store.housekeeping(keep):
@@ -91,7 +95,7 @@ async def build(cfg: dict, base: Path, token: str, store: Store, owner_id: int =
     doc = store.get("keys_doc") or local
     doc = keysdoc.verify(doc, pinned)  # ключ подписи сервера закреплён в конфиге
 
-    bot = Bot(token, proxy=cfg["telegram"].get("proxy") or None)
+    bot = Bot(token, proxy=cfg["telegram"].get("proxy") or None, observer=observer)
     core: api.Core
     exchange = Exchange(bot, cfg["server"]["inbox_bot"], b64.dec(pinned), lambda: keysdoc.inbox_key(core.keys_doc),
                         lambda: keysdoc.inbox_bots(core.keys_doc))
