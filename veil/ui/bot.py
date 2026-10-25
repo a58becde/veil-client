@@ -923,7 +923,13 @@ class UI:
         tr = self.T
         tokens = self.core.store.token_counts().get(api.today(), 0)
         lo, hi = self.cfg["privacy"].get("random_delay_seconds", DEFAULT_DELAY)
-        lines = [tr("text.status_b2b_off") if self.core.store.get("b2b_error") else tr("text.status_b2b_ok"),
+        if not self.core.store.get("b2b_error"):
+            link = tr("text.status_b2b_ok")
+        elif self.core.store.get("inbox_name_bad"):  # имя ведёт не к приёмному боту: режим bot-to-bot ни при чём
+            link = tr("text.status_inbox_name_bad")
+        else:
+            link = tr("text.status_b2b_off")
+        lines = [link,
                  tr("text.status_tokens", n=tokens) if tokens else tr("text.status_tokens_none")]
         if self.core.has_identity():
             lines.append(tr("text.status_identity", sign=self.core.nick() or f"·{self.core.device.tag}"))

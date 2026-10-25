@@ -668,6 +668,7 @@ class Core:
         pinned = b64.enc(self.exchange.server_sig_pk)
         new_doc = keysdoc.verify(doc, pinned)
         new_bots = keysdoc.inbox_bots(new_doc)  # испорченный список — KeysError до сохранения
+        keysdoc.inbox_names(new_doc)  # так же — испорченные имена приёмных ботов (spec/02)
         if not new_bots and keysdoc.inbox_bots(self.keys_doc):
             # Откат на @username: имя может сменить владельца (spec/02, 04)
             raise keysdoc.KeysError("keys.get без inbox_bots, а они уже были")
@@ -681,6 +682,7 @@ class Core:
         if mismatch:
             log.warning("keys.get offers an issuer key different from the pinned one")
         self.store.put("issuer_mismatch", True if mismatch else None)
+        await self.exchange.ensure_known()  # новые приёмные боты: первое касание заранее, а не в момент поста
         return self.keys_doc
 
     async def sync_feed(self) -> list[FeedEvent]:

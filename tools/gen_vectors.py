@@ -18,7 +18,7 @@ from veil.core import api as coreapi
 from veil.core import privacy
 from veil.core.crypto import bip39, keys, poprf
 from veil.core.identity import nick
-from veil.core.protocol import b64, content, envelope, errors, hidden, jcs
+from veil.core.protocol import b64, content, envelope, errors, hidden, jcs, keysdoc
 from veil.core.wallet import issue
 
 OUT = Path(__file__).resolve().parents[2] / "veil-protocol/test-vectors/veil-v1.json"
@@ -461,6 +461,85 @@ def main() -> None:
         "proof": {"plugin": "hello", "version": "1.2.3", "message": h(proof_msg),
                   "sig": b64.enc(lic_sk.sign(proof_msg).signature)},
     }
+
+    # keys.json (spec/02): документ с inbox_bots и inbox_names, подписанный server_sig из фиксированного зерна.
+    keys_sk = SigningKey(det("server_sig"))
+    keys_ids = [1234567890, 2345678901]
+    keys_body = {
+        "v": 1, "issued_at": "2026-10-16T00:00:00Z",
+        "inbox_enc": [{"kid": "i1", "pk": b64.enc(bytes(PrivateKey(det("keys_inbox_enc")).public_key))}],
+        "issuer_poprf": [{"kid": "t1", "pk": b64.enc(det("keys_issuer_pk"))}],
+        "inbox_bots": keys_ids,
+        "inbox_names": [{"id": keys_ids[0], "username": "example_inbox_bot"},
+                        {"id": keys_ids[1], "username": "Example_Second_BOT"}],
+        "server_sig": b64.enc(bytes(keys_sk.verify_key)),
+    }
+
+    def signed_keys(**over) -> dict:
+        """Документ keys.json с подменёнными полями и верной подписью (проверяется только правило поля)."""
+        doc = {**keys_body, **over}
+        doc = {k: x for k, x in doc.items() if x is not ...}
+        doc["sig"] = b64.enc(keys_sk.sign(keysdoc.CTX_KEYS + jcs.canonicalize(doc)).signature)
+        return doc
+
+    keys_good = signed_keys()
+    keysdoc.verify(keys_good)
+    assert keysdoc.inbox_names(keys_good) == {keys_ids[0]: "example_inbox_bot", keys_ids[1]: "example_second_bot"}
+    v["keys_doc"] = {
+        "server_sig_seed": h(det("server_sig")), "inbox_enc_seed": h(det("keys_inbox_enc")),
+        "issuer_pk_seed": h(det("keys_issuer_pk")),
+        "document_without_sig": {k: x for k, x in keys_good.items() if k != "sig"},
+        "signing_input": envelope.signing_input(keys_good, keysdoc.CTX_KEYS).decode(),
+        "sig": keys_good["sig"], "document": keys_good,
+        "inbox_names": {str(k): x for k, x in keysdoc.inbox_names(keys_good).items()},
+    }
+    name_item = {"id": keys_ids[0], "username": "example_inbox_bot"}
+    name_reject = [
+        ("name with @", [{**name_item, "username": "@example_inbox_bot"}]),
+        ("name of 4 characters", [{**name_item, "username": "xbot"}]),
+        ("name of 33 characters", [{**name_item, "username": "a" * 30 + "bot"}]),
+        ("name not ending in bot", [{**name_item, "username": "example_inbox_bo"}]),
+        ("name starting with a digit", [{**name_item, "username": "1example_bot"}]),
+        ("name with a dot", [{**name_item, "username": "example.inbox_bot"}]),
+        ("Cyrillic in name", [{**name_item, "username": "ex\u0430mple_inbox_bot"}]),
+        ("name with trailing newline", [{**name_item, "username": "example_inbox_bot\n"}]),
+        ("name not a string", [{**name_item, "username": 5}]),
+        ("id not in inbox_bots", [{**name_item, "id": 3456789012}]),
+        ("id as a string", [{**name_item, "id": str(keys_ids[0])}]),
+        ("id is true", [{**name_item, "id": True}]),
+        ("duplicate id", [name_item, {**name_item, "username": "other_inbox_bot"}]),
+        ("extra key in item", [{**name_item, "x": 1}]),
+        ("item without username", [{"id": keys_ids[0]}]),
+        ("item not an object", [keys_ids[0]]),
+        ("field is an object, not a list", {"id": keys_ids[0], "username": "example_inbox_bot"}),
+        ("field is null", None),
+        ("field is a string", "example_inbox_bot"),
+    ]
+    reject_docs = [{"why": why, "document": signed_keys(inbox_names=val)} for why, val in name_reject]
+    reject_docs.append({"why": "inbox_names without inbox_bots", "document": signed_keys(inbox_bots=...)})
+    reject_docs.append({"why": "inbox_names with empty inbox_bots", "document": signed_keys(inbox_bots=[])})
+    for r in reject_docs:
+        keysdoc.verify(r["document"])
+        try:
+            keysdoc.inbox_names(r["document"])
+        except keysdoc.KeysError:
+            pass
+        else:
+            raise AssertionError(r["why"])
+    accept = [("empty list", [], {}), ("upper-case BOT", [{**name_item, "username": "Example_Inbox_BOT"}],
+                                        {keys_ids[0]: "example_inbox_bot"}),
+              ("name of 5 characters", [{**name_item, "username": "a_bot"}], {keys_ids[0]: "a_bot"}),
+              ("name of 32 characters", [{**name_item, "username": "a" * 29 + "bot"}],
+               {keys_ids[0]: "a" * 29 + "bot"}),
+              ("one of two bots named", [name_item], {keys_ids[0]: "example_inbox_bot"})]
+    accept_docs = []
+    for why, val, want in accept:
+        doc = signed_keys(inbox_names=val)
+        assert keysdoc.inbox_names(doc) == want, why
+        accept_docs.append({"why": why, "document": doc, "inbox_names": {str(k): x for k, x in want.items()}})
+    accept_docs.append({"why": "no inbox_names field", "document": signed_keys(inbox_names=...), "inbox_names": {}})
+    v["keys_doc_reject"] = reject_docs
+    v["keys_doc_accept"] = accept_docs
 
     OUT.write_text(json.dumps(v, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
     print(f"written {OUT}", file=sys.stderr)

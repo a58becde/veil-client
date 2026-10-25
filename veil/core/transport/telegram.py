@@ -300,6 +300,10 @@ class Bot:
     async def get_me(self) -> dict:
         return await self.call("getMe")
 
+    async def get_chat(self, chat_id: int) -> dict:
+        """Известен ли боту чат (для ID чужого бота — были ли они на связи): 400 «chat not found», если нет."""
+        return await self.call("getChat", chat_id=_chat_ref(chat_id, "chat_id"))
+
     async def get_updates(self, offset: int, timeout: int = 50, *, limit: int | None = None,
                           allowed: tuple[str, ...] | list[str] = ("message", "callback_query")) -> list[dict]:
         r = await self.call("getUpdates", offset=offset, timeout=timeout, limit=limit, allowed_updates=list(allowed))

@@ -53,6 +53,32 @@ def inbox_bots(doc: dict) -> list[int]:
     return ids
 
 
+INBOX_USERNAME = re.compile(r"[A-Za-z][A-Za-z0-9_]{1,28}[Bb][Oo][Tt]")
+
+
+def inbox_names(doc: dict) -> dict[int, str]:
+    """@username приёмных ботов (без @, строчными) по их ID. Пусто — сервер имён не публикует.
+
+    Правила spec/02: список объектов ровно с ключами id и username; id — целое из inbox_bots без повторов;
+    username по шаблону (5–32 знака, оканчивается на bot, только ASCII). Любое нарушение — KeysError."""
+    if "inbox_names" not in doc:
+        return {}
+    names = doc["inbox_names"]
+    ids = inbox_bots(doc)
+    if not isinstance(names, list) or (names and not ids):
+        raise KeysError("inbox_names в keys.json испорчен")
+    out: dict[int, str] = {}
+    for item in names:
+        if not isinstance(item, dict) or set(item) != {"id", "username"}:
+            raise KeysError("inbox_names в keys.json испорчен")
+        bot_id, name = item["id"], item["username"]
+        if (not isinstance(bot_id, int) or isinstance(bot_id, bool) or bot_id not in ids or bot_id in out
+                or not isinstance(name, str) or not INBOX_USERNAME.fullmatch(name)):
+            raise KeysError("inbox_names в keys.json испорчен")
+        out[bot_id] = name.lower()
+    return out
+
+
 def issuer_key(doc: dict) -> tuple[str, bytes]:
     """Действующий ключ эмитента документа (spec/02, 03): один, долгоживущий."""
     ks = doc.get("issuer_poprf") or []

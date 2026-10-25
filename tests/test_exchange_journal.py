@@ -608,6 +608,9 @@ def _refresh_core(tmp_path, old: dict, new: dict, sk: SigningKey):
 
         async def request(self, *a, **kw):
             return new
+
+        async def ensure_known(self):
+            pass
     store = Store(tmp_path)
     return api.Core(bot=None, store=store, exchange=Ex(), keys_doc=old, owner_id=1)
 

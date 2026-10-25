@@ -8,14 +8,16 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import time
 from dataclasses import dataclass, field
-from typing import Awaitable, Callable
+from typing import Any, Awaitable, Callable
 
 from nacl.public import PrivateKey
 from nacl.signing import SigningKey
 
 from veil.core.protocol import envelope
 from veil.core.protocol.errors import ProtocolError
+from veil.core.protocol.keysdoc import INBOX_USERNAME
 
 from .telegram import Bot, TelegramError
 
@@ -28,6 +30,8 @@ DEADLINE = 600.0  # общий срок одной операции (10 мин),
 MAX_ATTACHMENTS = 4  # документов-вложений на одно ожидание
 HINT_PREFIX = "VEIL1E "
 HINT_CODE = re.compile(r"E_[A-Z_]{1,32}")  # допустимый код в подсказке VEIL1E (spec/04)
+TOUCH_TEXT = "/start"  # первое касание приёмного бота по @username (spec/04): единственное, что уходит по имени
+TOUCH_EVERY = 600.0  # касание одного приёмного бота — не чаще раза в 10 минут
 
 
 class ServerError(Exception):
@@ -46,9 +50,18 @@ class NoReplyError(Exception):
     pass
 
 
+def chat_not_found(e: TelegramError) -> bool:
+    """Telegram не знает такого чата: бот ещё ни разу не обращался к этому боту (или чат удалён)."""
+    return e.code == 400 and "chat not found" in e.description.lower()
+
+
 def unreachable(e: TelegramError) -> bool:
     """Приёмный бот не принимает сообщения (удалён, заблокирован): тому же боту повтор не поможет."""
-    return e.code == 403 or (e.code == 400 and "chat not found" in e.description.lower())
+    return e.code == 403 or chat_not_found(e)
+
+
+def _is_id(x: Any) -> bool:
+    return type(x) is int
 
 
 class PartBuffer:
@@ -90,11 +103,19 @@ class _Pending:
 
 class Exchange:
     def __init__(self, bot: Bot, inbox: str, server_sig_pk: bytes, inbox_key: Callable[[], tuple[str, bytes]],
-                 inbox_ids: Callable[[], list[int]] = lambda: []):
+                 inbox_ids: Callable[[], list[int]] = lambda: [],
+                 inbox_names: Callable[[], dict[int, str]] = lambda: {},
+                 name_flag: Callable[[dict | None], None] | None = None):
         self.bot, self.server_sig_pk, self.inbox_key = bot, server_sig_pk, inbox_key
         self.username = inbox.lstrip("@").lower()
         self.inbox_ids = inbox_ids  # ID приёмных ботов из подписанного keys.json
+        self.inbox_names = inbox_names  # их @username (подсказка для первого касания, не для доверия)
+        self.name_flag = name_flag  # сюда сообщается, что имя ведёт не к приёмному боту (None — снять отметку)
         self._current: int | None = None  # приёмный бот после переключения (switch_from)
+        # Касание — только в памяти процесса (на диск и в экспорт не попадает): новый бот сам выяснит, известен ли чат.
+        self._known: set[int] = set()  # приёмные боты, с которыми у этого бота уже есть чат
+        self._touched: dict[int, float] = {}  # когда в последний раз пытались коснуться (time.monotonic)
+        self._bad_names: set[str] = set()  # имена, которые привели не к приёмному боту
         # (чат, message_id конверта) → ожидание: номера сообщений у каждого приёмного бота свои
         self._pending: dict[tuple[int | None, int], _Pending] = {}
 
@@ -122,6 +143,100 @@ class Exchange:
         """Приёмный бот для запроса: указанный (например, тот, что держит файл «лично для»), если он из keys.json, —
         иначе обычный."""
         return bot_id if bot_id is not None and bot_id in self.inbox_ids() else self.inbox
+
+    def _ids(self) -> list[int]:
+        """ID приёмных ботов из keys.json; испорченный список — пусто (касаться некому)."""
+        try:
+            ids = self.inbox_ids()
+        except Exception:  # граница: чужой или испорченный документ не должен ронять отправку
+            return []
+        return list(ids) if isinstance(ids, (list, tuple)) and all(_is_id(i) for i in ids) else []
+
+    def _touch_name(self, bot_id: int) -> str | None:
+        """@username для касания (без @): из keys.json для этого ID, иначе имя из настроек. Имя, уже приведшее не
+        к приёмному боту, и имя не по шаблону не используются."""
+        try:
+            names = self.inbox_names()
+        except Exception:
+            names = {}
+        for name in (names.get(bot_id) if isinstance(names, dict) else None, self.username):
+            if isinstance(name, str) and INBOX_USERNAME.fullmatch(name) and name.lower() not in self._bad_names:
+                return name.lower()
+        return None
+
+    def _flag(self, value: dict | None) -> None:
+        if self.name_flag is not None:
+            try:
+                self.name_flag(value)
+            except Exception as e:  # отметка для владельца не должна ломать обмен
+                log.warning("inbox name flag failed (%s)", type(e).__name__)
+
+    async def touch(self, bot_id: int) -> bool:
+        """Первое касание приёмного бота (spec/04): `sendMessage("@имя", "/start")` и ничего больше. Подтверждение —
+        chat.id результата самого вызова, а не ответ сервера. True — коснулись именно bot_id. Не бросает исключений
+        Telegram; не чаще TOUCH_EVERY на бот (метка ставится до отправки, удачной или нет)."""
+        if not _is_id(bot_id) or bot_id not in self._ids():
+            return False
+        now = time.monotonic()
+        last = self._touched.get(bot_id)
+        if last is not None and now - last < TOUCH_EVERY:
+            return False
+        name = self._touch_name(bot_id)
+        if name is None:
+            return False
+        self._touched[bot_id] = now
+        try:
+            res = await self.bot.call("sendMessage", chat_id="@" + name, text=TOUCH_TEXT)
+        except TelegramError as e:
+            log.warning("touch of inbox bot %s failed: %s", bot_id, e.code)
+            return False
+        chat = res.get("chat") if isinstance(res, dict) else None
+        got = chat.get("id") if isinstance(chat, dict) else None
+        if not _is_id(got) or got not in self._ids():
+            # Имя ведёт не к приёмному боту сервера (владелец имени сменился): имени больше не доверяем.
+            self._bad_names.add(name)
+            log.warning("inbox username @%s resolves to %s, not an inbox bot", name,
+                        got if _is_id(got) else "a non-integer id")
+            self._flag({"name": name, "id": got if _is_id(got) else None})
+            return False
+        self._known.add(got)
+        if got == bot_id:
+            self._flag(None)
+        return got == bot_id
+
+    async def ensure_known(self) -> None:
+        """Заранее (при обновлении keys.json): для каждого приёмного бота, чат с которым процессу ещё не известен,
+        `getChat` по ID; «chat not found» — касание. Другие ошибки — молча дальше. Исключений наружу не выпускает."""
+        try:
+            for bot_id in self._ids():
+                if bot_id in self._known:
+                    continue
+                try:
+                    await self.bot.get_chat(bot_id)
+                except TelegramError as e:
+                    if chat_not_found(e):
+                        await self.touch(bot_id)
+                    continue
+                self._known.add(bot_id)
+        except Exception as e:  # обновление ключей не должно ломаться из-за касания
+            log.warning("inbox bots check failed (%s)", type(e).__name__)
+
+    async def _guarded(self, chat: int | str, call: Callable[[], Awaitable[Any]]) -> Any:
+        """Любая отправка приёмному боту по ID. «chat not found» — бот перестаёт быть известным (Telegram мог забыть
+        чат), затем касание (не чаще TOUCH_EVERY на бот) и тот же вызов ровно один раз (Telegram отверг его целиком,
+        ничего не ушло). Иначе ошибка идёт дальше как раньше."""
+        try:
+            res = await call()
+        except TelegramError as e:
+            if not (_is_id(chat) and chat in self._ids() and chat_not_found(e)):
+                raise
+            self._known.discard(chat)
+            if not await self.touch(chat):
+                raise
+            res = await call()
+        if _is_id(chat) and chat in self._ids():
+            self._known.add(chat)  # первое удачное сообщение делает чат известным
+        return res
 
     def is_inbox(self, sender: dict) -> bool:
         """Сообщение от приёмного бота сервера (ответы, подсказки VEIL1E, вложения)."""
@@ -166,7 +281,7 @@ class Exchange:
         reply_to = None
         if deliver:
             try:
-                got = await deliver()
+                got = await self._guarded(chat, deliver)
             except TelegramError as e:
                 # Контент не дошёл: конверта ещё нет, токен не тронут. Следующая попытка пойдёт другому приёмному боту.
                 if unreachable(e):
@@ -289,12 +404,15 @@ class Exchange:
     async def _send(self, env: dict, text: str, reply_to: int | None, to: int | None = None) -> dict:
         """Конверт текстом, а не помещающийся в 3000 байт — документом ответом на контент (spec/04)."""
         chat = self.inbox_for(to)
-        if not envelope.needs_document(env):
-            return await self.bot.send(chat, text, reply_to=reply_to)
-        return await self.bot.upload("sendDocument", "document", "veil.txt", text.encode(), "text/plain",
-                                     chat_id=chat, caption=envelope.DOC_CAPTION,
-                                     reply_parameters={"message_id": reply_to, "allow_sending_without_reply": True}
-                                     if reply_to else None)
+
+        async def go() -> dict:
+            if not envelope.needs_document(env):
+                return await self.bot.send(chat, text, reply_to=reply_to)
+            return await self.bot.upload("sendDocument", "document", "veil.txt", text.encode(), "text/plain",
+                                         chat_id=chat, caption=envelope.DOC_CAPTION,
+                                         reply_parameters={"message_id": reply_to, "allow_sending_without_reply": True}
+                                         if reply_to else None)
+        return await self._guarded(chat, go)
 
     def on_inbox_message(self, msg: dict) -> None:
         """Сообщение от приёмного бота: часть ответа, ответ целиком или подсказка VEIL1E. Не бросает исключений:

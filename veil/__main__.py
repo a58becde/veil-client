@@ -98,7 +98,8 @@ async def build(cfg: dict, base: Path, token: str, store: Store, owner_id: int =
     bot = Bot(token, proxy=cfg["telegram"].get("proxy") or None, observer=observer)
     core: api.Core
     exchange = Exchange(bot, cfg["server"]["inbox_bot"], b64.dec(pinned), lambda: keysdoc.inbox_key(core.keys_doc),
-                        lambda: keysdoc.inbox_bots(core.keys_doc))
+                        lambda: keysdoc.inbox_bots(core.keys_doc), lambda: keysdoc.inbox_names(core.keys_doc),
+                        lambda flag: store.put("inbox_name_bad", flag))
     owner = owner_id or cfg["telegram"].get("owner_id") or store.get("owner_id") or 0
     core = api.Core(bot, store, exchange, doc, owner)
     labels = {}
