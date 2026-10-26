@@ -39,4 +39,5 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
-        run: gh release create "$TAG" dist/veil-engine.wasm dist/SHA256SUMS --title "$TAG" --notes "Официальная сборка движка плагинов; происхождение: gh attestation verify veil-engine.wasm --repo $GITHUB_REPOSITORY --signer-workflow $GITHUB_REPOSITORY/.github/workflows/engine-release.yml"
+        run: |
+          gh release create "$TAG" dist/veil-engine.wasm dist/SHA256SUMS --title "$TAG" --notes "Официальная сборка движка плагинов; происхождение: gh attestation verify veil-engine.wasm --repo $GITHUB_REPOSITORY --signer-workflow $GITHUB_REPOSITORY/.github/workflows/engine-release.yml"
