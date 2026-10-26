@@ -80,6 +80,8 @@ def test_all_ok(env, capsys):
     assert gh[1:3] == ["attestation", "verify"]
     assert gh[gh.index("--repo") + 1] == "acme/veil-client"
     assert gh[gh.index("--signer-workflow") + 1] == "acme/veil-client/.github/workflows/engine-release.yml"
+    assert gh[gh.index("--source-ref") + 1] == f"refs/tags/{TAG}"
+    assert "--deny-self-hosted-runners" in gh
     assert gh[gh.index("--format") + 1] == "json"
     diff = next(c for c in env.calls if c[:2] == ["git", "diff"])
     assert diff[:6] == ["git", "diff", "--quiet", COMMIT, "HEAD", "--"]

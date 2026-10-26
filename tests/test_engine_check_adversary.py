@@ -268,9 +268,11 @@ def test_gh_receives_downloaded_bytes_and_fixed_args(full):
     assert a[:2] == ["attestation", "verify"]
     assert a[a.index("--repo") + 1] == f"{OWNER}/{REPO}"
     assert a[a.index("--signer-workflow") + 1] == f"{OWNER}/{REPO}/.github/workflows/engine-release.yml"
+    assert a[a.index("--source-ref") + 1] == f"refs/tags/{TAG}"
+    assert "--deny-self-hosted-runners" in a
     assert a[a.index("--format") + 1] == "json"
-    # ничего лишнего: файл + три флага со значениями
-    assert len(a) == 2 + 1 + 6
+    # ничего лишнего: файл + четыре флага со значениями + запрет self-hosted
+    assert len(a) == 2 + 1 + 8 + 1
 
 
 def test_out_writes_file_and_keeps_it(full, tmp_path):

@@ -139,7 +139,8 @@ def run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
 def provenance(path: Path, owner: str, repo: str, tag: str) -> str:
     """Проверить аттестацию файла; вернуть коммит исходников, из которого собран релиз."""
     res = run(["gh", "attestation", "verify", str(path), "--repo", f"{owner}/{repo}",
-               "--signer-workflow", f"{owner}/{repo}/{WORKFLOW}", "--format", "json"])
+               "--signer-workflow", f"{owner}/{repo}/{WORKFLOW}", "--source-ref", f"refs/tags/{tag}",
+               "--deny-self-hosted-runners", "--format", "json"])
     if res.returncode != 0:
         tail = res.stderr.strip()[-500:]
         raise FailError(f"аттестация происхождения не подтверждена (gh, код {res.returncode}): {tail}")
