@@ -13,7 +13,7 @@ import pytest
 from harness import Env
 from plugkit import new_engine, shutdown
 
-from veil import market, plugins
+from veil import market, plugin_manifest, plugins
 from veil import market_tool as tool
 from veil.ui import bot as uibot
 from veil.ui.market_ui import MarketUI
@@ -397,3 +397,26 @@ def test_market_in_pool(tmp_path):
         finally:
             await shutdown(e.ui.plugins)
     asyncio.run(scenario())
+
+
+def test_verify_applies_client_limits(tmp_path):
+    """`verify` (его гоняет CI над архивами форк-PR) проходит через те же пределы, что и бот: индекс и архив — не
+    больше лимита чтения, число файлов и размер пакета — до распаковки."""
+    c = Catalog(tmp_path)
+    c.publish(c.plugin())
+    index = c.root / "index.json"
+    good = index.read_bytes()
+    index.write_bytes(good + b" " * market.INDEX_MAX)
+    with pytest.raises(market.MarketError, match="больше"):
+        tool.verify(c.root, c.market_pk)
+    index.write_bytes(good)
+    assert tool.verify(c.root, c.market_pk)
+    # пакет с избытком файлов: бот отказывает до записи на диск, `verify` — тоже (проверяем границу распаковки)
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("plugin.toml", "x")
+        for n in range(plugin_manifest.MAX_FILES + 1):
+            z.writestr(f"f{n}.py", "")
+    with pytest.raises(market.MarketError, match="слишком много"):
+        market.unpack(buf.getvalue(), tmp_path / "out")
+    assert not (tmp_path / "out").exists()

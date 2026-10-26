@@ -70,6 +70,17 @@ python -m veil config.toml engine status     # какой файл и приня
 неповторяема — у каждой свой хеш, поэтому сверить её с официальной побайтно нельзя. При первом плагине бот один раз
 компилирует движок в машинный код (~15 с, ~350 МБ памяти) и хранит его в `data/engine/`.
 
+Происхождение официального движка. Его собирает GitHub Actions из исходников тега `engine-N` (workflow
+`.github/workflows/engine-release.yml`) и подписывает аттестацией происхождения (Sigstore). Проверить, что файл
+собран именно этим workflow из этого репозитория:
+```sh
+gh attestation verify veil-engine.wasm --repo a58becde/veil-client \
+  --signer-workflow a58becde/veil-client/.github/workflows/engine-release.yml
+```
+Аттестация называет коммит исходников; `engine/guest`, `engine/wit` и сборщик в этом коммите должны совпадать с
+текущими — это проверяет каждый прогон CI (`tools/engine_check.py`). Побайтно повторить сборку нельзя (см. выше), а
+происхождение проверить можно.
+
 `[plugins]` в `config.toml`: `engine` — свой путь к движку, `workers` (4) — сколько событий исполняется одновременно,
 `memory_mb` (64) — память одного события.
 

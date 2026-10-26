@@ -1,0 +1,42 @@
+name: engine-release
+
+# Официальный движок плагинов собирается здесь, из исходников тега, и подписывается аттестацией происхождения.
+# Запуск — только по тегу engine-N.
+on:
+  push:
+    tags: ["engine-*"]
+
+permissions: {}
+
+jobs:
+  engine-release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - name: Сборка движка
+        run: python engine/build.py --out=dist/veil-engine.wasm
+      - name: Контрольная сумма
+        working-directory: dist
+        run: |
+          sha256sum veil-engine.wasm | tee SHA256SUMS
+      # Без predicate/sbom-path action сам создаёт SLSA build provenance (README v4.2.2); attest-build-provenance v4 —
+      # лишь обёртка над ним. Эти поля читает tools/engine_check.py.
+      - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: dist/veil-engine.wasm
+      - name: Релиз
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: gh release create "$TAG" dist/veil-engine.wasm dist/SHA256SUMS --title "$TAG" --notes "Официальная сборка движка плагинов; происхождение: gh attestation verify veil-engine.wasm --repo $GITHUB_REPOSITORY --signer-workflow $GITHUB_REPOSITORY/.github/workflows/engine-release.yml"

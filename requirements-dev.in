@@ -1,2 +1,14 @@
+# Инструменты разработки и проверки (ворота, CI). Версии рабочих пакетов берутся из requirements.lock (-c).
+# Пересборка с хешами:
+#   pip-compile --generate-hashes --no-emit-index-url --output-file=requirements-dev.lock --strip-extras requirements-dev.in
+# Установка:
+#   pip install --require-hashes --no-deps -r requirements.lock -r requirements-dev.lock
 -c requirements.lock
+ruff==0.17.1
+bandit==1.9.4
+pytest==9.1.1
+hypothesis==6.170.8
+mutmut==3.8.0
+pip-audit==2.10.1
+pip-tools==7.6.2
 import-linter==2.15
